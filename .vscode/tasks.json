@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install Dependencies",
+			"type": "shell",
+			"command": "npm install",
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Install Dependencies (prefix)",
+			"type": "shell",
+			"command": "cd ~ && npm install --prefix /Users/ankitmehra/Documents/health_frontend",
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
