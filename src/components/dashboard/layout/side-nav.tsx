@@ -4,21 +4,27 @@ import * as React from 'react';
 import RouterLink from 'next/link';
 import { usePathname } from 'next/navigation';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { CaretUpDownIcon } from '@phosphor-icons/react/dist/ssr/CaretUpDown';
 
 import type { NavItemConfig } from '@/types/nav';
+import type { UserRole } from '@/types/user';
 import { paths } from '@/paths';
 import { isNavItemActive } from '@/lib/is-nav-item-active';
 import { Logo } from '@/components/core/logo';
+import { useUser } from '@/hooks/use-user';
+import { ROLE_LABELS } from '@/types/user';
 
-import { navItems } from './config';
+import { getNavItems } from './config';
 import { navIcons } from './nav-icons';
 
 export function SideNav(): React.JSX.Element {
   const pathname = usePathname();
+  const { user } = useUser();
+  const items = getNavItems(user?.role as UserRole | undefined);
 
   return (
     <Box
@@ -67,16 +73,30 @@ export function SideNav(): React.JSX.Element {
             <Typography color="var(--mui-palette-neutral-400)" variant="body2">
               Workspace
             </Typography>
-            <Typography color="inherit" variant="subtitle1">
-              Health Portal
-            </Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Typography color="inherit" variant="subtitle1">
+                Health Portal
+              </Typography>
+              {user?.role ? (
+                <Chip
+                  label={ROLE_LABELS[user.role as UserRole] ?? user.role}
+                  size="small"
+                  sx={{
+                    bgcolor: 'var(--mui-palette-primary-main)',
+                    color: 'var(--mui-palette-primary-contrastText)',
+                    fontSize: '0.65rem',
+                    height: '18px',
+                  }}
+                />
+              ) : null}
+            </Stack>
           </Box>
           <CaretUpDownIcon />
         </Box>
       </Stack>
       <Divider sx={{ borderColor: 'var(--mui-palette-neutral-700)' }} />
       <Box component="nav" sx={{ flex: '1 1 auto', p: '12px' }}>
-        {renderNavItems({ pathname, items: navItems })}
+        {renderNavItems({ pathname, items })}
       </Box>
       <Divider sx={{ borderColor: 'var(--mui-palette-neutral-700)' }} />
       <Stack spacing={2} sx={{ p: '12px' }}>

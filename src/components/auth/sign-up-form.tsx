@@ -12,9 +12,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import FormHelperText from '@mui/material/FormHelperText';
 import InputLabel from '@mui/material/InputLabel';
 import Link from '@mui/material/Link';
-import MenuItem from '@mui/material/MenuItem';
 import OutlinedInput from '@mui/material/OutlinedInput';
-import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { Controller, useForm } from 'react-hook-form';
@@ -28,14 +26,13 @@ const schema = zod.object({
   name: zod.string().min(1, { message: 'Full name is required' }),
   email: zod.string().min(1, { message: 'Email is required' }).email(),
   mobile_no: zod.string().optional(),
-  role: zod.enum(['patient', 'doctor', 'admin']),
   password: zod.string().min(8, { message: 'Password should be at least 8 characters' }),
   terms: zod.boolean().refine((value) => value, 'You must accept the terms and conditions'),
 });
 
 type Values = zod.infer<typeof schema>;
 
-const defaultValues = { name: '', email: '', mobile_no: '', role: 'patient' as const, password: '', terms: false } satisfies Values;
+const defaultValues = { name: '', email: '', mobile_no: '', password: '', terms: false } satisfies Values;
 
 export function SignUpForm(): React.JSX.Element {
   const router = useRouter();
@@ -59,7 +56,6 @@ export function SignUpForm(): React.JSX.Element {
         name: values.name,
         email: values.email,
         password: values.password,
-        role: values.role,
         mobile_no: values.mobile_no,
       });
 
@@ -88,6 +84,9 @@ export function SignUpForm(): React.JSX.Element {
           <Link component={RouterLink} href={paths.auth.signIn} underline="hover" variant="subtitle2">
             Sign in
           </Link>
+        </Typography>
+        <Typography color="text.secondary" variant="caption">
+          Public registration creates a Patient account. Doctors and Admins are created by administrators.
         </Typography>
       </Stack>
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -122,21 +121,6 @@ export function SignUpForm(): React.JSX.Element {
                 <InputLabel>Phone number (optional)</InputLabel>
                 <OutlinedInput {...field} label="Phone number (optional)" type="tel" />
                 {errors.mobile_no ? <FormHelperText>{errors.mobile_no.message}</FormHelperText> : null}
-              </FormControl>
-            )}
-          />
-          <Controller
-            control={control}
-            name="role"
-            render={({ field }) => (
-              <FormControl error={Boolean(errors.role)}>
-                <InputLabel>Role</InputLabel>
-                <Select {...field} label="Role">
-                  <MenuItem value="patient">Patient</MenuItem>
-                  <MenuItem value="doctor">Doctor</MenuItem>
-                  <MenuItem value="admin">Admin</MenuItem>
-                </Select>
-                {errors.role ? <FormHelperText>{errors.role.message}</FormHelperText> : null}
               </FormControl>
             )}
           />

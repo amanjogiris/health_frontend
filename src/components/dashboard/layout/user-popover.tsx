@@ -2,6 +2,7 @@ import * as React from 'react';
 import RouterLink from 'next/link';
 import { useRouter } from 'next/navigation';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import MenuItem from '@mui/material/MenuItem';
@@ -16,6 +17,8 @@ import { paths } from '@/paths';
 import { authClient } from '@/lib/auth/client';
 import { logger } from '@/lib/default-logger';
 import { useUser } from '@/hooks/use-user';
+import type { UserRole } from '@/types/user';
+import { ROLE_LABELS } from '@/types/user';
 
 export interface UserPopoverProps {
   anchorEl: Element | null;
@@ -24,7 +27,7 @@ export interface UserPopoverProps {
 }
 
 export function UserPopover({ anchorEl, onClose, open }: UserPopoverProps): React.JSX.Element {
-  const { checkSession } = useUser();
+  const { user, checkSession } = useUser();
 
   const router = useRouter();
 
@@ -57,10 +60,18 @@ export function UserPopover({ anchorEl, onClose, open }: UserPopoverProps): Reac
       slotProps={{ paper: { sx: { width: '240px' } } }}
     >
       <Box sx={{ p: '16px 20px ' }}>
-        <Typography variant="subtitle1">Sofia Rivers</Typography>
+        <Typography variant="subtitle1">{user?.name ?? 'Unknown User'}</Typography>
         <Typography color="text.secondary" variant="body2">
-          sofia.rivers@devias.io
+          {user?.email ?? ''}
         </Typography>
+        {user?.role ? (
+          <Chip
+            label={ROLE_LABELS[user.role as UserRole] ?? user.role}
+            size="small"
+            color="primary"
+            sx={{ mt: 0.5, fontSize: '0.7rem', height: '20px' }}
+          />
+        ) : null}
       </Box>
       <Divider />
       <MenuList disablePadding sx={{ p: '8px', '& .MuiMenuItem-root': { borderRadius: 1 } }}>

@@ -13,7 +13,11 @@ const compat = new FlatCompat();
 /** @type {import('eslint').Linter.Config[]} */
 export default [
 	{
+		ignores: [".next/**", "node_modules/**"],
+	},
+	{
 		files: ["**/*.{js,mjs,cjs,ts,jsx,tsx}"],
+		ignores: [".next/**"],
 		languageOptions: {
 			globals: {
 				...globals.browser,

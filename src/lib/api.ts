@@ -9,12 +9,15 @@ function getToken(): string | null {
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const url = new URL(`${API_BASE_URL}${path}`);
-  if (token) url.searchParams.set('token', token);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options.headers ?? {}) as Record<string, string>),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(url.toString(), {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    headers,
   });
 
   if (!res.ok) {
@@ -22,10 +25,25 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     throw new Error(err.detail ?? 'Request failed');
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface AvailabilityInput {
+  day_of_week: number; // 0 = Monday … 6 = Sunday
+  start_time: string;  // "HH:MM"
+  end_time: string;    // "HH:MM"
+}
+
+export interface AvailabilityResponse {
+  id: number;
+  doctor_id: number;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+}
 
 export interface DoctorResponse {
   id: number;
@@ -36,9 +54,14 @@ export interface DoctorResponse {
   qualifications?: string;
   experience_years: number;
   max_patients_per_day: number;
+  consultation_duration_minutes: number;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+  /** Enriched by service JOIN */
+  doctor_name?: string;
+  clinic_name?: string;
+  availability?: AvailabilityResponse[];
 }
 
 export interface ClinicResponse {
@@ -59,14 +82,15 @@ export interface AppointmentSlotResponse {
   id: number;
   doctor_id: number;
   clinic_id: number;
-  slot_datetime: string;
-  duration_minutes: number;
+  /** ISO-8601 datetime string */
+  start_time: string;
+  /** ISO-8601 datetime string */
+  end_time: string;
   is_booked: boolean;
   capacity: number;
   booked_count: number;
-  available_slots: number;
+  is_active: boolean;
   created_at?: string;
-  updated_at?: string;
 }
 
 export interface AppointmentResponse {
@@ -162,4 +186,140 @@ export async function bookAppointment(data: {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+// ─── Doctor self-service ───────────────────────────────────────────────────────
+
+export async function getDoctorProfile(): Promise<DoctorResponse> {
+  return apiFetch<DoctorResponse>('/api/v1/doctors/profile');
+}
+
+export async function updateDoctorProfile(data: Partial<DoctorResponse>): Promise<DoctorResponse> {
+  return apiFetch<DoctorResponse>('/api/v1/doctors/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getDoctorAppointments(skip = 0, limit = 100): Promise<AppointmentResponse[]> {
+  return apiFetch<AppointmentResponse[]>(`/api/v1/doctors/appointments?skip=${skip}&limit=${limit}`);
+}
+
+// ─── Admin management (SUPER_ADMIN only) ──────────────────────────────────────
+
+export interface AdminUserResponse {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  mobile_no?: string | null;
+  is_verified: boolean;
+  is_active: boolean;
+  created_at?: string | null;
+}
+
+export async function getAdmins(): Promise<AdminUserResponse[]> {
+  return apiFetch<AdminUserResponse[]>('/api/v1/admins');
+}
+
+export async function createAdmin(data: {
+  name: string;
+  email: string;
+  password: string;
+  mobile_no?: string;
+}): Promise<AdminUserResponse> {
+  return apiFetch<AdminUserResponse>('/api/v1/admins', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteAdmin(id: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/admins/${id}`, { method: 'DELETE' });
+}
+
+// ─── Doctor management (ADMIN / SUPER_ADMIN) ──────────────────────────────────
+
+export async function createDoctor(data: {
+  user_id: number;
+  clinic_id: number;
+  specialty: string;
+  license_number: string;
+  qualifications?: string;
+  experience_years?: number;
+  max_patients_per_day?: number;
+}): Promise<DoctorResponse> {
+  return apiFetch<DoctorResponse>('/api/v1/doctors', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function registerDoctor(data: {
+  name: string;
+  email: string;
+  password: string;
+  mobile_no?: string;
+  clinic_id: number;
+  specialty: string;
+  license_number: string;
+  qualifications?: string;
+  experience_years?: number;
+  max_patients_per_day?: number;
+  consultation_duration_minutes?: number;
+  availability?: AvailabilityInput[];
+}): Promise<DoctorResponse> {
+  return apiFetch<DoctorResponse>('/api/v1/doctors/register', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getDoctorAvailability(doctorId: number): Promise<AvailabilityResponse[]> {
+  return apiFetch<AvailabilityResponse[]>(`/api/v1/doctors/${doctorId}/availability`);
+}
+
+export async function setDoctorAvailability(
+  doctorId: number,
+  availability: AvailabilityInput[]
+): Promise<AvailabilityResponse[]> {
+  return apiFetch<AvailabilityResponse[]>(`/api/v1/doctors/${doctorId}/availability`, {
+    method: 'PUT',
+    body: JSON.stringify(availability),
+  });
+}
+
+export async function deleteDoctor(id: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/doctors/${id}`, { method: 'DELETE' });
+}
+
+// ─── Clinic management (ADMIN / SUPER_ADMIN) ──────────────────────────────────
+
+export async function createClinic(data: {
+  name: string;
+  address: string;
+  phone: string;
+  city: string;
+  state: string;
+  zip_code: string;
+  email?: string;
+}): Promise<ClinicResponse> {
+  return apiFetch<ClinicResponse>('/api/v1/clinics', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateClinic(
+  id: number,
+  data: Partial<Omit<ClinicResponse, 'id' | 'is_active' | 'created_at' | 'updated_at'>>
+): Promise<ClinicResponse> {
+  return apiFetch<ClinicResponse>(`/api/v1/clinics/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteClinic(id: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/clinics/${id}`, { method: 'DELETE' });
 }

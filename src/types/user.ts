@@ -1,8 +1,10 @@
+export type UserRole = 'super_admin' | 'admin' | 'doctor' | 'patient';
+
 export interface User {
   id: number | string;
   name?: string;
   email?: string;
-  role?: string;
+  role?: UserRole;
   mobile_no?: string;
   address?: string;
   is_verified?: boolean;
@@ -13,3 +15,10 @@ export interface User {
 
   [key: string]: unknown;
 }
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Super Admin',
+  admin: 'Admin',
+  doctor: 'Doctor',
+  patient: 'Patient',
+};
