@@ -20,16 +20,9 @@ import { useUser } from '@/hooks/use-user';
 
 export function AccountDetailsForm(): React.JSX.Element {
   const { user } = useUser();
-  const [saved, setSaved] = React.useState(false);
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      }}
-    >
+    <div>
       <Card>
         <CardHeader subheader="Your profile information from the Health Portal" title="Profile" />
         <Divider />
@@ -58,8 +51,12 @@ export function AccountDetailsForm(): React.JSX.Element {
                 <Typography variant="body2" color="text.secondary">Role</Typography>
                 {user?.role ? (
                   <Chip
-                    label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                    color={user.role === 'admin' ? 'error' : user.role === 'doctor' ? 'primary' : 'success'}
+                    label={user.role === 'super_admin' ? 'Super Admin' : user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                    color={
+                      user.role === 'super_admin' ? 'error' :
+                      user.role === 'admin' ? 'warning' :
+                      user.role === 'doctor' ? 'primary' : 'success'
+                    }
                     sx={{ alignSelf: 'flex-start' }}
                   />
                 ) : (
@@ -98,9 +95,9 @@ export function AccountDetailsForm(): React.JSX.Element {
         </CardContent>
         <Divider />
         <CardActions sx={{ justifyContent: 'flex-end', gap: 1 }}>
-          {saved ? <Alert severity="success" sx={{ py: 0 }}>Profile information is managed via the backend.</Alert> : null}
+          <Alert severity="info" sx={{ py: 0, flex: 1 }}>Profile updates are managed by your administrator.</Alert>
         </CardActions>
       </Card>
-    </form>
+    </div>
   );
 }

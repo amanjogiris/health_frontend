@@ -99,7 +99,7 @@ export interface AppointmentResponse {
   doctor_id: number;
   clinic_id: number;
   slot_id: number;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show' | 'rejected';
   reason_for_visit?: string;
   notes?: string;
   cancelled_at?: string;
@@ -172,6 +172,17 @@ export async function cancelAppointment(appointmentId: number, reason: string): 
   return apiFetch<AppointmentResponse>(`/api/v1/appointments/${appointmentId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ cancelled_reason: reason }),
+  });
+}
+
+export async function updateAppointmentStatus(
+  appointmentId: number,
+  status: 'confirmed' | 'completed' | 'no_show' | 'rejected',
+  notes?: string,
+): Promise<AppointmentResponse> {
+  return apiFetch<AppointmentResponse>(`/api/v1/appointments/${appointmentId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, notes }),
   });
 }
 

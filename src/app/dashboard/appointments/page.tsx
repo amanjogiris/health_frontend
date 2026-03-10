@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -50,10 +51,7 @@ const statusConfig: Record<
   { label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }
 > = {
   pending: { label: 'Pending', color: 'warning' },
-  confirmed: { label: 'Confirmed', color: 'info' },
-  completed: { label: 'Completed', color: 'success' },
   cancelled: { label: 'Cancelled', color: 'error' },
-  no_show: { label: 'No Show', color: 'default' },
 };
 
 interface BookForm {
@@ -83,14 +81,15 @@ export default function Page(): React.JSX.Element {
   const [cancelling, setCancelling] = React.useState(false);
   const [cancelError, setCancelError] = React.useState<string | null>(null);
 
-  // Book dialog (admin only)
+  // Book dialog
   const [bookOpen, setBookOpen] = React.useState(false);
   const [booking, setBooking] = React.useState(false);
   const [bookError, setBookError] = React.useState<string | null>(null);
   const [bookForm, setBookForm] = React.useState<BookForm>({ patient_id: '', doctor_id: '', slot_id: '', reason_for_visit: '' });
   const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
   const [clinics, setClinics] = React.useState<ClinicResponse[]>([]);
-  const [slots, setSlots] = React.useState<AppointmentSlotResponse[]>([]);
+  const [allSlots, setAllSlots] = React.useState<AppointmentSlotResponse[]>([]); // for table id→time lookup
+  const [availableSlots, setAvailableSlots] = React.useState<AppointmentSlotResponse[]>([]); // for book dialog
   const [slotsLoading, setSlotsLoading] = React.useState(false);
 
   const load = React.useCallback((): void => {
@@ -101,9 +100,9 @@ export default function Page(): React.JSX.Element {
     if (isPatient) {
       fetchFn = getPatientAppointments(Number(user.id));
     } else if (isDoctor) {
-      fetchFn = getDoctorAppointments(0, 200);
+      fetchFn = getDoctorAppointments(0, 100);
     } else {
-      fetchFn = getAppointments(0, 200);
+      fetchFn = getAppointments(0, 100);
     }
     fetchFn
       .then(setAppointments)
@@ -111,7 +110,29 @@ export default function Page(): React.JSX.Element {
       .finally(() => { setLoading(false); });
   }, [user, isPatient, isDoctor]);
 
+  // Load lookup data (doctors, clinics, slots) once so the table can resolve IDs to names
+  React.useEffect((): void => {
+    void Promise.all([getDoctors(), getClinics(), getSlots()])
+      .then(([d, c, s]) => { setDoctors(d); setClinics(c); setAllSlots(s); })
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
   React.useEffect(() => { load(); }, [load]);
+
+  // Lookup helpers
+  const doctorName = (id: number): string => {
+    const d = doctors.find((x) => x.id === id);
+    return d?.doctor_name ?? `Doctor #${id}`;
+  };
+  const clinicName = (id: number): string => {
+    const c = clinics.find((x) => x.id === id);
+    return c?.name ?? `Clinic #${id}`;
+  };
+  const slotTime = (id: number): string => {
+    const s = allSlots.find((x) => x.id === id);
+    if (!s) return `Slot #${id}`;
+    return dayjs(s.start_time).format('MMM D, HH:mm');
+  };
 
   const filtered = appointments.filter((a) => statusFilter === 'all' || a.status === statusFilter);
   const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
@@ -139,12 +160,13 @@ export default function Page(): React.JSX.Element {
   }
 
   const canCancel = (appt: AppointmentResponse): boolean =>
-    appt.status !== 'cancelled' && appt.status !== 'completed' && appt.status !== 'no_show';
+    appt.status !== 'cancelled' && (isAdmin || isDoctor || isPatient);
 
   // ── Book helpers (admin) ────────────────────────────────────────────────────
   function openBookDialog(): void {
-    setBookForm({ patient_id: '', doctor_id: '', slot_id: '', reason_for_visit: '' });
-    setSlots([]);
+    // Pre-fill patient_id automatically when the current user is a patient
+    setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', slot_id: '', reason_for_visit: '' });
+    setAvailableSlots([]);
     setBookError(null);
     setBookOpen(true);
     // Pre-load doctors and clinics
@@ -156,11 +178,11 @@ export default function Page(): React.JSX.Element {
 
   function onDoctorChange(doctorId: string): void {
     setBookForm((f) => ({ ...f, doctor_id: doctorId, slot_id: '' }));
-    setSlots([]);
+    setAvailableSlots([]);
     if (!doctorId) return;
     setSlotsLoading(true);
     getSlots({ doctor_id: Number(doctorId) })
-      .then((data) => { setSlots(data.filter((s) => !s.is_booked && s.is_active)); })
+      .then((data) => { setAvailableSlots(data.filter((s) => !s.is_booked && s.is_active)); })
       .catch(() => { /* non-fatal */ })
       .finally(() => { setSlotsLoading(false); });
   }
@@ -223,10 +245,7 @@ export default function Page(): React.JSX.Element {
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
               <MenuItem value="pending">Pending</MenuItem>
-              <MenuItem value="confirmed">Confirmed</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
-              <MenuItem value="no_show">No Show</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -236,13 +255,13 @@ export default function Page(): React.JSX.Element {
           >
             Refresh
           </Button>
-          {isAdmin ? (
+          {isAdmin || isPatient ? (
             <Button
               startIcon={<CalendarPlusIcon fontSize="var(--icon-fontSize-md)" />}
               variant="contained"
               onClick={openBookDialog}
             >
-              Book Appointment
+              {isPatient ? 'Book Appointment' : 'Book Appointment'}
             </Button>
           ) : null}
         </Stack>
@@ -258,13 +277,13 @@ export default function Page(): React.JSX.Element {
               <TableRow>
                 <TableCell>#ID</TableCell>
                 {isAdmin ? <TableCell>Patient ID</TableCell> : null}
-                <TableCell>Doctor ID</TableCell>
-                <TableCell>Clinic ID</TableCell>
-                <TableCell>Slot ID</TableCell>
+                <TableCell>Doctor</TableCell>
+                <TableCell>Clinic</TableCell>
+                <TableCell>Slot Time</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Reason for Visit</TableCell>
                 <TableCell>Notes</TableCell>
-                <TableCell>Created</TableCell>
+                <TableCell>Booked On</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -293,10 +312,16 @@ export default function Page(): React.JSX.Element {
                   return (
                     <TableRow key={appt.id} hover>
                       <TableCell><Typography variant="subtitle2">#{appt.id}</Typography></TableCell>
-                      {isAdmin ? <TableCell>#{appt.patient_id}</TableCell> : null}
-                      <TableCell>#{appt.doctor_id}</TableCell>
-                      <TableCell>#{appt.clinic_id}</TableCell>
-                      <TableCell>#{appt.slot_id}</TableCell>
+                      {isAdmin ? <TableCell>Patient #{appt.patient_id}</TableCell> : null}
+                      <TableCell>
+                        <Typography variant="body2">{doctorName(appt.doctor_id)}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>{clinicName(appt.clinic_id)}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" noWrap>{slotTime(appt.slot_id)}</Typography>
+                      </TableCell>
                       <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
                       <TableCell>
                         <Typography variant="body2" noWrap sx={{ maxWidth: '180px' }}>
@@ -312,13 +337,15 @@ export default function Page(): React.JSX.Element {
                         {appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY HH:mm') : '—'}
                       </TableCell>
                       <TableCell align="right">
-                        {canCancel(appt) ? (
-                          <Tooltip title="Cancel appointment">
-                            <IconButton color="error" size="small" onClick={() => { openCancelDialog(appt); }}>
-                              <XCircleIcon fontSize="var(--icon-fontSize-md)" />
-                            </IconButton>
-                          </Tooltip>
-                        ) : null}
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          {canCancel(appt) ? (
+                            <Tooltip title="Cancel appointment">
+                              <IconButton color="error" size="small" onClick={() => { openCancelDialog(appt); }}>
+                                <XCircleIcon fontSize="var(--icon-fontSize-md)" />
+                              </IconButton>
+                            </Tooltip>
+                          ) : null}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   );
@@ -381,16 +408,20 @@ export default function Page(): React.JSX.Element {
           <Stack spacing={2} sx={{ mt: 1 }}>
             {bookError ? <Typography color="error" variant="body2">{bookError}</Typography> : null}
 
-            <TextField
-              label="Patient ID"
-              required
-              fullWidth
-              type="number"
-              value={bookForm.patient_id}
-              onChange={(e) => { setBookForm((f) => ({ ...f, patient_id: e.target.value })); }}
-              disabled={booking}
-              helperText="Enter the patient's numeric ID"
-            />
+            {isPatient ? (
+              <Alert severity="info" sx={{ py: 0 }}>Booking as Patient #{user?.id}</Alert>
+            ) : (
+              <TextField
+                label="Patient ID"
+                required
+                fullWidth
+                type="number"
+                value={bookForm.patient_id}
+                onChange={(e) => { setBookForm((f) => ({ ...f, patient_id: e.target.value })); }}
+                disabled={booking}
+                helperText="Enter the patient's numeric ID"
+              />
+            )}
 
             <FormControl fullWidth required disabled={booking}>
               <InputLabel>Doctor</InputLabel>
@@ -404,7 +435,7 @@ export default function Page(): React.JSX.Element {
                 ) : (
                   doctors.filter((d) => d.is_active).map((d) => (
                     <MenuItem key={d.id} value={String(d.id)}>
-                      Doctor #{d.id} — {d.specialty}
+                      {d.doctor_name ?? `Doctor #${d.id}`} — {d.specialty}
                     </MenuItem>
                   ))
                 )}
@@ -430,12 +461,12 @@ export default function Page(): React.JSX.Element {
               >
                 {slotsLoading ? (
                   <MenuItem value="" disabled>Loading slots…</MenuItem>
-                ) : slots.length === 0 ? (
+                ) : availableSlots.length === 0 ? (
                   <MenuItem value="" disabled>
                     {bookForm.doctor_id ? 'No available slots' : 'Select a doctor first'}
                   </MenuItem>
                 ) : (
-                  slots.map((s) => (
+                  availableSlots.map((s) => (
                     <MenuItem key={s.id} value={String(s.id)}>
                       {dayjs(s.start_time).format('MMM D, YYYY HH:mm')}
                       {' → '}

@@ -10,6 +10,8 @@ const ALL_NAV_ITEMS: (NavItemConfig & { roles?: UserRole[] })[] = [
 
   // PATIENT only
   { key: 'appointments', title: 'My Appointments', href: paths.dashboard.appointments, icon: 'calendar-blank', roles: ['patient'] },
+  { key: 'find-doctors', title: 'Find Doctors', href: paths.dashboard.doctors, icon: 'stethoscope', roles: ['patient'] },
+  { key: 'clinics-patient', title: 'Clinics', href: paths.dashboard.clinics, icon: 'buildings', roles: ['patient'] },
 
   // DOCTOR only
   { key: 'doctor-appointments', title: 'My Appointments', href: paths.dashboard.appointments, icon: 'calendar-blank', roles: ['doctor'] },
