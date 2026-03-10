@@ -35,7 +35,6 @@ import {
   getDoctorAppointments,
   getDoctorProfile,
   getPatientAppointments,
-  getSlots,
 } from '@/lib/api';
 import type { UserRole } from '@/types/user';
 import { ROLE_LABELS } from '@/types/user';
@@ -271,15 +270,13 @@ function AdminDashboard(): React.JSX.Element {
   const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
   const [clinics, setClinics] = React.useState<ClinicResponse[]>([]);
   const [appointments, setAppointments] = React.useState<AppointmentResponse[]>([]);
-  const [availableSlots, setAvailableSlots] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins, slots] = await Promise.all([getDoctors(), getClinics(), getSlots()]);
+        const [docs, clins] = await Promise.all([getDoctors(), getClinics()]);
         setDoctors(docs); setClinics(clins);
-        setAvailableSlots(slots.filter((s) => !s.is_booked).length);
         try { setAppointments(await getAppointments()); } catch { /* admin-only */ }
       } finally { setLoading(false); }
     }
@@ -290,6 +287,30 @@ function AdminDashboard(): React.JSX.Element {
     const c: Record<string, number> = { pending: 0, confirmed: 0, completed: 0, cancelled: 0, no_show: 0 };
     appointments.forEach((a) => { if (c[a.status] !== undefined) c[a.status]++; });
     return c;
+  }, [appointments]);
+
+  // Derive unique patient rows from appointment data
+  const patientRows = React.useMemo(() => {
+    const map = new Map<number, { id: number; name: string; appointmentCount: number; lastStatus: string; lastDate: string }>();
+    appointments.forEach((a) => {
+      const existing = map.get(a.patient_id);
+      if (existing) {
+        existing.appointmentCount += 1;
+        if (!existing.lastDate || (a.created_at && a.created_at > existing.lastDate)) {
+          existing.lastStatus = a.status;
+          existing.lastDate = a.created_at ?? '';
+        }
+      } else {
+        map.set(a.patient_id, {
+          id: a.patient_id,
+          name: a.patient_name ?? `Patient #${a.patient_id}`,
+          appointmentCount: 1,
+          lastStatus: a.status,
+          lastDate: a.created_at ?? '',
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.appointmentCount - a.appointmentCount);
   }, [appointments]);
 
   return (
@@ -307,7 +328,7 @@ function AdminDashboard(): React.JSX.Element {
         <StatCard title="Clinics" value={loading ? '…' : clinics.length} icon={<BuildingsIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-success-main)" subtitle={`${clinics.filter((c) => c.is_active).length} active`} />
       </Grid>
       <Grid size={{ lg: 3, sm: 6, xs: 12 }}>
-        <StatCard title="Open Slots" value={loading ? '…' : availableSlots} icon={<ClockIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-warning-main)" subtitle="Available for booking" />
+        <StatCard title="Patients" value={loading ? '…' : patientRows.length} icon={<UserIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-warning-main)" subtitle="Unique patients" />
       </Grid>
       <Grid size={{ lg: 3, sm: 6, xs: 12 }}>
         <StatCard title="Appointments" value={loading ? '…' : appointments.length} icon={<CalendarBlankIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-info-main)" subtitle={`${statusCounts.pending} pending`} />
@@ -315,6 +336,7 @@ function AdminDashboard(): React.JSX.Element {
       <Grid size={{ xs: 12 }}>
         <Stack direction="row" spacing={2} flexWrap="wrap">
           <Button component={RouterLink} href={paths.dashboard.doctors} variant="contained">Manage Doctors</Button>
+          <Button component={RouterLink} href={paths.dashboard.patients} variant="outlined">Manage Patients</Button>
           <Button component={RouterLink} href={paths.dashboard.clinics} variant="outlined">Manage Clinics</Button>
           <Button component={RouterLink} href={paths.dashboard.appointments} variant="outlined">View Appointments</Button>
         </Stack>
@@ -385,6 +407,53 @@ function AdminDashboard(): React.JSX.Element {
       </Grid>
       <Grid size={{ xs: 12 }}>
         <AppointmentTable appointments={appointments} loading={loading} title="Recent Appointments" doctors={doctors} />
+      </Grid>
+      <Grid size={{ xs: 12 }}>
+        <Card>
+          <CardHeader title="Patient Details" />
+          <Divider />
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Patient</TableCell>
+                  <TableCell>Appointments</TableCell>
+                  <TableCell>Last Status</TableCell>
+                  <TableCell>Last Visit</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
+                  <TableRow><TableCell colSpan={4}><Typography variant="body2" color="text.secondary">Loading…</Typography></TableCell></TableRow>
+                ) : patientRows.length === 0 ? (
+                  <TableRow><TableCell colSpan={4}><Typography variant="body2" color="text.secondary">No patients found.</Typography></TableCell></TableRow>
+                ) : (
+                  patientRows.slice(0, 10).map((p) => {
+                    const cfg = statusConfig[p.lastStatus] ?? { label: p.lastStatus, color: 'default' as const };
+                    return (
+                      <TableRow key={p.id} hover>
+                        <TableCell>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Avatar sx={{ width: 32, height: 32, bgcolor: 'var(--mui-palette-primary-main)' }}>
+                              <UserIcon fontSize="var(--icon-fontSize-sm)" />
+                            </Avatar>
+                            <Stack spacing={0}>
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>{p.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">ID #{p.id}</Typography>
+                            </Stack>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>{p.appointmentCount}</TableCell>
+                        <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
+                        <TableCell>{p.lastDate ? dayjs(p.lastDate).format('MMM D, YYYY') : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+        </Card>
       </Grid>
     </Grid>
   );

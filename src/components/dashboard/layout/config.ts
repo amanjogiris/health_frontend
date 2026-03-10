@@ -18,6 +18,7 @@ const ALL_NAV_ITEMS: (NavItemConfig & { roles?: UserRole[] })[] = [
 
   // ADMIN / SUPER_ADMIN
   { key: 'doctors', title: 'Doctors', href: paths.dashboard.doctors, icon: 'stethoscope', roles: ['admin', 'super_admin'] },
+  { key: 'patients', title: 'Patients', href: paths.dashboard.patients, icon: 'user', roles: ['admin', 'super_admin'] },
   { key: 'clinics', title: 'Clinics', href: paths.dashboard.clinics, icon: 'buildings', roles: ['admin', 'super_admin'] },
   { key: 'all-appointments', title: 'Appointments', href: paths.dashboard.appointments, icon: 'calendar-blank', roles: ['admin', 'super_admin'] },
 

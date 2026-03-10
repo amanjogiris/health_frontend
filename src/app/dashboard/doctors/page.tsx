@@ -32,6 +32,7 @@ import Typography from '@mui/material/Typography';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
 import { MinusCircleIcon } from '@phosphor-icons/react/dist/ssr/MinusCircle';
 import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
+import { PencilSimpleIcon } from '@phosphor-icons/react/dist/ssr/PencilSimple';
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { StethoscopeIcon } from '@phosphor-icons/react/dist/ssr/Stethoscope';
 import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
@@ -40,7 +41,7 @@ import dayjs from 'dayjs';
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
 import type { AppointmentSlotResponse, AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
-import { bookAppointment, deleteDoctor, getClinics, getDoctors, getSlots, registerDoctor } from '@/lib/api';
+import { bookAppointment, deleteDoctor, getClinics, getDoctors, getSlots, registerDoctor, updateDoctor } from '@/lib/api';
 
 const DOW_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -104,6 +105,12 @@ export default function Page(): React.JSX.Element {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = React.useState<DoctorResponse | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+
+  // Edit dialog
+  const [editTarget, setEditTarget] = React.useState<DoctorResponse | null>(null);
+  const [editing, setEditing] = React.useState(false);
+  const [editError, setEditError] = React.useState<string | null>(null);
+  const [editForm, setEditForm] = React.useState({ name: '', email: '', mobile_no: '', license_number: '', specialty: '', qualifications: '', experience_years: '0', max_patients_per_day: '20', consultation_duration_minutes: '15', clinic_id: '' });
 
   // Patient book-from-doctor dialog
   const [bookTarget, setBookTarget] = React.useState<DoctorResponse | null>(null);
@@ -220,6 +227,52 @@ export default function Page(): React.JSX.Element {
       setDeleteTarget(null);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  function openEditDialog(doctor: DoctorResponse): void {
+    setEditTarget(doctor);
+    setEditError(null);
+    setEditForm({
+      name: doctor.doctor_name ?? '',
+      email: doctor.email ?? '',
+      mobile_no: doctor.mobile_no ?? '',
+      license_number: doctor.license_number,
+      specialty: doctor.specialty,
+      qualifications: doctor.qualifications ?? '',
+      experience_years: String(doctor.experience_years),
+      max_patients_per_day: String(doctor.max_patients_per_day),
+      consultation_duration_minutes: String(doctor.consultation_duration_minutes),
+      clinic_id: String(doctor.clinic_id),
+    });
+    if (clinics.length === 0) {
+      getClinics().then(setClinics).catch(() => { /* non-fatal */ });
+    }
+  }
+
+  async function handleEdit(): Promise<void> {
+    if (!editTarget) return;
+    setEditing(true);
+    setEditError(null);
+    try {
+      await updateDoctor(editTarget.id, {
+        name: editForm.name || undefined,
+        email: editForm.email || undefined,
+        mobile_no: editForm.mobile_no || undefined,
+        license_number: editForm.license_number || undefined,
+        specialty: editForm.specialty || undefined,
+        qualifications: editForm.qualifications || undefined,
+        experience_years: editForm.experience_years ? Number(editForm.experience_years) : undefined,
+        max_patients_per_day: editForm.max_patients_per_day ? Number(editForm.max_patients_per_day) : undefined,
+        consultation_duration_minutes: editForm.consultation_duration_minutes ? Number(editForm.consultation_duration_minutes) : undefined,
+        clinic_id: editForm.clinic_id ? Number(editForm.clinic_id) : undefined,
+      });
+      setEditTarget(null);
+      loadDoctors();
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update doctor.');
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -371,6 +424,11 @@ export default function Page(): React.JSX.Element {
                     </TableCell>
                     {isAdmin ? (
                       <TableCell align="right">
+                        <Tooltip title="Edit doctor">
+                          <IconButton color="primary" size="small" onClick={() => { openEditDialog(doctor); }}>
+                            <PencilSimpleIcon fontSize="var(--icon-fontSize-md)" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Delete doctor">
                           <IconButton color="error" size="small" onClick={() => { setDeleteTarget(doctor); }}>
                             <TrashIcon fontSize="var(--icon-fontSize-md)" />
@@ -561,6 +619,41 @@ export default function Page(): React.JSX.Element {
           <Button onClick={() => { void handleCreate(); }} variant="contained" disabled={creating}>
             {creating ? 'Creating\u2026' : 'Add Doctor'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Edit Doctor Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={Boolean(editTarget)} onClose={() => { if (!editing) setEditTarget(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Doctor — {editTarget?.doctor_name ?? `Doctor #${editTarget?.id}`}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {editError ? <Typography color="error" variant="body2">{editError}</Typography> : null}
+            <Typography variant="subtitle2" color="text.secondary">Account Information</Typography>
+            <TextField label="Full Name" fullWidth value={editForm.name} onChange={(e) => { setEditForm((f) => ({ ...f, name: e.target.value })); }} disabled={editing} inputProps={{ maxLength: 150 }} />
+            <TextField label="Email" type="email" fullWidth value={editForm.email} onChange={(e) => { setEditForm((f) => ({ ...f, email: e.target.value })); }} disabled={editing} />
+            <TextField label="Phone Number" fullWidth value={editForm.mobile_no} onChange={(e) => { setEditForm((f) => ({ ...f, mobile_no: e.target.value })); }} disabled={editing} inputProps={{ maxLength: 20 }} />
+            <Typography variant="subtitle2" color="text.secondary">Professional Information</Typography>
+            <TextField label="License Number" fullWidth value={editForm.license_number} onChange={(e) => { setEditForm((f) => ({ ...f, license_number: e.target.value })); }} disabled={editing} inputProps={{ maxLength: 50 }} />
+            <FormControl fullWidth disabled={editing}>
+              <InputLabel>Clinic</InputLabel>
+              <Select value={editForm.clinic_id} label="Clinic" onChange={(e) => { setEditForm((f) => ({ ...f, clinic_id: String(e.target.value) })); }}>
+                {clinics.map((c) => (
+                  <MenuItem key={c.id} value={String(c.id)}>{c.name} — {c.city}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField label="Specialty" fullWidth value={editForm.specialty} onChange={(e) => { setEditForm((f) => ({ ...f, specialty: e.target.value })); }} disabled={editing} />
+            <TextField label="Qualifications" fullWidth value={editForm.qualifications} onChange={(e) => { setEditForm((f) => ({ ...f, qualifications: e.target.value })); }} disabled={editing} />
+            <Stack direction="row" spacing={2}>
+              <TextField label="Experience (years)" type="number" fullWidth value={editForm.experience_years} onChange={(e) => { setEditForm((f) => ({ ...f, experience_years: e.target.value })); }} disabled={editing} inputProps={{ min: 0, max: 80 }} />
+              <TextField label="Max Patients / Day" type="number" fullWidth value={editForm.max_patients_per_day} onChange={(e) => { setEditForm((f) => ({ ...f, max_patients_per_day: e.target.value })); }} disabled={editing} inputProps={{ min: 1, max: 100 }} />
+              <TextField label="Duration (min)" type="number" fullWidth value={editForm.consultation_duration_minutes} onChange={(e) => { setEditForm((f) => ({ ...f, consultation_duration_minutes: e.target.value })); }} disabled={editing} inputProps={{ min: 5, max: 120 }} />
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setEditTarget(null); }} disabled={editing}>Cancel</Button>
+          <Button onClick={() => { void handleEdit(); }} variant="contained" disabled={editing}>{editing ? 'Saving…' : 'Save Changes'}</Button>
         </DialogActions>
       </Dialog>
 

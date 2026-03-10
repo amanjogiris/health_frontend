@@ -11,6 +11,7 @@ export const paths = {
     clinics: '/dashboard/clinics',
     appointments: '/dashboard/appointments',
     admins: '/dashboard/admins',
+    patients: '/dashboard/patients',
   },
   errors: { notFound: '/errors/not-found' },
 } as const;

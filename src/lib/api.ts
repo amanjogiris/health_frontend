@@ -60,6 +60,8 @@ export interface DoctorResponse {
   updated_at?: string;
   /** Enriched by service JOIN */
   doctor_name?: string;
+  email?: string;
+  mobile_no?: string;
   clinic_name?: string;
   availability?: AvailabilityResponse[];
 }
@@ -119,6 +121,11 @@ export interface PatientResponse {
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+  // Enriched fields (admin list)
+  patient_name?: string;
+  email?: string;
+  mobile_no?: string;
+  address?: string;
 }
 
 // ─── API Functions ─────────────────────────────────────────────────────────────
@@ -349,6 +356,56 @@ export async function setDoctorAvailability(
 
 export async function deleteDoctor(id: number): Promise<void> {
   return apiFetch<void>(`/api/v1/doctors/${id}`, { method: 'DELETE' });
+}
+
+export async function updateDoctor(
+  id: number,
+  data: {
+    name?: string;
+    email?: string;
+    mobile_no?: string;
+    clinic_id?: number;
+    specialty?: string;
+    license_number?: string;
+    qualifications?: string;
+    experience_years?: number;
+    max_patients_per_day?: number;
+    consultation_duration_minutes?: number;
+  }
+): Promise<DoctorResponse> {
+  return apiFetch<DoctorResponse>(`/api/v1/doctors/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+// ─── Patient management (ADMIN / SUPER_ADMIN) ─────────────────────────────────
+
+export async function getPatients(skip = 0, limit = 100): Promise<PatientResponse[]> {
+  return apiFetch<PatientResponse[]>(`/api/v1/patients?skip=${skip}&limit=${limit}`);
+}
+
+export async function adminUpdatePatient(
+  id: number,
+  data: {
+    name?: string;
+    email?: string;
+    mobile_no?: string;
+    address?: string;
+    date_of_birth?: string;
+    blood_group?: string;
+    allergies?: string;
+    emergency_contact?: string;
+  }
+): Promise<PatientResponse> {
+  return apiFetch<PatientResponse>(`/api/v1/patients/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePatient(id: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/patients/${id}`, { method: 'DELETE' });
 }
 
 // ─── Clinic management (ADMIN / SUPER_ADMIN) ──────────────────────────────────

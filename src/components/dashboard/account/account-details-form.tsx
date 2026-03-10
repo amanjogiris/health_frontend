@@ -18,7 +18,7 @@ import { useUser } from '@/hooks/use-user';
 
 export function AccountDetailsForm(): React.JSX.Element {
   const { user, checkSession } = useUser();
-  const isEditable = user?.role === 'patient' || user?.role === 'doctor';
+  const isEditable = user?.role === 'patient' || user?.role === 'doctor' || user?.role === 'admin' || user?.role === 'super_admin';
 
   const [name, setName] = React.useState(user?.name ?? '');
   const [mobileNo, setMobileNo] = React.useState(user?.mobile_no ?? '');
