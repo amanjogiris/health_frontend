@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -14,6 +13,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
@@ -29,6 +29,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
 import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
+import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
 import { XCircleIcon } from '@phosphor-icons/react/dist/ssr/XCircle';
 import dayjs from 'dayjs';
 
@@ -50,7 +51,8 @@ const statusConfig: Record<
   string,
   { label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }
 > = {
-  pending: { label: 'Pending', color: 'warning' },
+  pending: { label: 'Pending', color: 'default' },
+  booked: { label: 'Booked', color: 'info' },
   cancelled: { label: 'Cancelled', color: 'error' },
 };
 
@@ -91,6 +93,7 @@ export default function Page(): React.JSX.Element {
   const [allSlots, setAllSlots] = React.useState<AppointmentSlotResponse[]>([]); // for table id→time lookup
   const [availableSlots, setAvailableSlots] = React.useState<AppointmentSlotResponse[]>([]); // for book dialog
   const [slotsLoading, setSlotsLoading] = React.useState(false);
+  const [doctorSearch, setDoctorSearch] = React.useState('');
 
   const load = React.useCallback((): void => {
     if (!user) return;
@@ -112,7 +115,7 @@ export default function Page(): React.JSX.Element {
 
   // Load lookup data (doctors, clinics, slots) once so the table can resolve IDs to names
   React.useEffect((): void => {
-    void Promise.all([getDoctors(), getClinics(), getSlots()])
+    void Promise.all([getDoctors(), getClinics(), getSlots({ limit: 1000, include_all: true })])
       .then(([d, c, s]) => { setDoctors(d); setClinics(c); setAllSlots(s); })
       .catch(() => { /* non-fatal */ });
   }, []);
@@ -164,12 +167,11 @@ export default function Page(): React.JSX.Element {
 
   // ── Book helpers (admin) ────────────────────────────────────────────────────
   function openBookDialog(): void {
-    // Pre-fill patient_id automatically when the current user is a patient
     setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', slot_id: '', reason_for_visit: '' });
     setAvailableSlots([]);
+    setDoctorSearch('');
     setBookError(null);
     setBookOpen(true);
-    // Pre-load doctors and clinics
     Promise.all([getDoctors(), getClinics()]).then(([d, c]) => {
       setDoctors(d);
       setClinics(c);
@@ -244,7 +246,7 @@ export default function Page(): React.JSX.Element {
             <InputLabel>Status</InputLabel>
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
-              <MenuItem value="pending">Pending</MenuItem>
+              <MenuItem value="booked">Booked</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
             </Select>
           </FormControl>
@@ -275,14 +277,14 @@ export default function Page(): React.JSX.Element {
           <Table sx={{ minWidth: '900px' }}>
             <TableHead>
               <TableRow>
-                <TableCell>#ID</TableCell>
+                {isAdmin ? <TableCell>#ID</TableCell> : null}
                 {isAdmin ? <TableCell>Patient ID</TableCell> : null}
-                <TableCell>Doctor</TableCell>
-                <TableCell>Clinic</TableCell>
+                <TableCell>{isDoctor ? 'Patient' : 'Doctor'}</TableCell>
+                {!isDoctor ? <TableCell>Clinic</TableCell> : null}
                 <TableCell>Slot Time</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Reason for Visit</TableCell>
-                <TableCell>Notes</TableCell>
+                <TableCell>Notes / Reason</TableCell>
                 <TableCell>Booked On</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -311,14 +313,20 @@ export default function Page(): React.JSX.Element {
                   const cfg = statusConfig[appt.status] ?? { label: appt.status, color: 'default' as const };
                   return (
                     <TableRow key={appt.id} hover>
-                      <TableCell><Typography variant="subtitle2">#{appt.id}</Typography></TableCell>
+                      {isAdmin ? <TableCell><Typography variant="subtitle2">#{appt.id}</Typography></TableCell> : null}
                       {isAdmin ? <TableCell>Patient #{appt.patient_id}</TableCell> : null}
                       <TableCell>
-                        <Typography variant="body2">{doctorName(appt.doctor_id)}</Typography>
+                        <Typography variant="body2">
+                          {isDoctor
+                            ? (appt.patient_name ?? `Patient #${appt.patient_id}`)
+                            : doctorName(appt.doctor_id)}
+                        </Typography>
                       </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>{clinicName(appt.clinic_id)}</Typography>
-                      </TableCell>
+                      {!isDoctor ? (
+                        <TableCell>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>{clinicName(appt.clinic_id)}</Typography>
+                        </TableCell>
+                      ) : null}
                       <TableCell>
                         <Typography variant="body2" noWrap>{slotTime(appt.slot_id)}</Typography>
                       </TableCell>
@@ -329,8 +337,8 @@ export default function Page(): React.JSX.Element {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>
-                          {appt.notes ?? '—'}
+                        <Typography variant="body2" sx={{ maxWidth: '200px' }}>
+                          {appt.notes ?? appt.cancelled_reason ?? '—'}
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -396,11 +404,11 @@ export default function Page(): React.JSX.Element {
         </DialogActions>
       </Dialog>
 
-      {/* ── Book Appointment Dialog (admin) ──────────────────────────────── */}
+      {/* ── Book Appointment Dialog ───────────────────────────────────────── */}
       <Dialog
         open={bookOpen}
         onClose={() => { if (!booking) setBookOpen(false); }}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>Book Appointment</DialogTitle>
@@ -408,9 +416,7 @@ export default function Page(): React.JSX.Element {
           <Stack spacing={2} sx={{ mt: 1 }}>
             {bookError ? <Typography color="error" variant="body2">{bookError}</Typography> : null}
 
-            {isPatient ? (
-              <Alert severity="info" sx={{ py: 0 }}>Booking as Patient #{user?.id}</Alert>
-            ) : (
+            {!isPatient ? (
               <TextField
                 label="Patient ID"
                 required
@@ -421,26 +427,58 @@ export default function Page(): React.JSX.Element {
                 disabled={booking}
                 helperText="Enter the patient's numeric ID"
               />
-            )}
+            ) : null}
 
-            <FormControl fullWidth required disabled={booking}>
-              <InputLabel>Doctor</InputLabel>
-              <Select
-                value={bookForm.doctor_id}
-                label="Doctor"
-                onChange={(e) => { onDoctorChange(String(e.target.value)); }}
-              >
-                {doctors.length === 0 ? (
-                  <MenuItem value="" disabled>Loading doctors…</MenuItem>
-                ) : (
-                  doctors.filter((d) => d.is_active).map((d) => (
-                    <MenuItem key={d.id} value={String(d.id)}>
-                      {d.doctor_name ?? `Doctor #${d.id}`} — {d.specialty}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            {/* ── Doctor search ───────────────────────────────────────────── */}
+            <TextField
+              label="Search doctor by name or specialty"
+              fullWidth
+              value={doctorSearch}
+              onChange={(e) => { setDoctorSearch(e.target.value); }}
+              disabled={booking}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <MagnifyingGlassIcon fontSize="var(--icon-fontSize-md)" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            {(() => {
+              const q = doctorSearch.trim().toLowerCase();
+              const matched = doctors.filter((d) => d.is_active && (
+                q === '' ||
+                (d.doctor_name ?? '').toLowerCase().includes(q) ||
+                d.specialty.toLowerCase().includes(q)
+              ));
+              if (matched.length === 0 && q !== '') {
+                return <Typography variant="body2" color="text.secondary">No doctors match "{doctorSearch}".</Typography>;
+              }
+              return (
+                <Stack
+                  direction="row"
+                  flexWrap="wrap"
+                  gap={1}
+                  sx={{ maxHeight: 130, overflowY: 'auto', p: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                >
+                  {matched.map((d) => {
+                    const selected = bookForm.doctor_id === String(d.id);
+                    return (
+                      <Chip
+                        key={d.id}
+                        label={`${d.doctor_name ?? `Doctor #${d.id}`} — ${d.specialty}`}
+                        onClick={() => { onDoctorChange(String(d.id)); }}
+                        color={selected ? 'primary' : 'default'}
+                        variant={selected ? 'filled' : 'outlined'}
+                        disabled={booking}
+                        size="small"
+                      />
+                    );
+                  })}
+                </Stack>
+              );
+            })()}
 
             {bookForm.doctor_id ? (
               <TextField
@@ -452,31 +490,76 @@ export default function Page(): React.JSX.Element {
               />
             ) : null}
 
-            <FormControl fullWidth required disabled={booking || !bookForm.doctor_id}>
-              <InputLabel>Slot</InputLabel>
-              <Select
-                value={bookForm.slot_id}
-                label="Slot"
-                onChange={(e) => { setBookForm((f) => ({ ...f, slot_id: String(e.target.value) })); }}
-              >
-                {slotsLoading ? (
-                  <MenuItem value="" disabled>Loading slots…</MenuItem>
-                ) : availableSlots.length === 0 ? (
-                  <MenuItem value="" disabled>
-                    {bookForm.doctor_id ? 'No available slots' : 'Select a doctor first'}
-                  </MenuItem>
-                ) : (
-                  availableSlots.map((s) => (
-                    <MenuItem key={s.id} value={String(s.id)}>
-                      {dayjs(s.start_time).format('MMM D, YYYY HH:mm')}
-                      {' → '}
-                      {dayjs(s.end_time).format('HH:mm')}
-                      {` (${s.capacity - s.booked_count} left)`}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            {/* ── Week calendar slot picker ───────────────────────────────── */}
+            {bookForm.doctor_id ? (
+              slotsLoading ? (
+                <Typography variant="body2" color="text.secondary">Loading available slots…</Typography>
+              ) : availableSlots.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No available slots for this doctor in the next 7 days.</Typography>
+              ) : (() => {
+                const byDay = new Map<string, AppointmentSlotResponse[]>();
+                for (const s of availableSlots) {
+                  const key = dayjs(s.start_time).format('YYYY-MM-DD');
+                  if (!byDay.has(key)) byDay.set(key, []);
+                  byDay.get(key)!.push(s);
+                }
+                const days = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
+                return (
+                  <Box sx={{ overflowX: 'auto' }}>
+                    <Stack direction="row" spacing={1} sx={{ minWidth: days.length * 120 }}>
+                      {days.map(([dateKey, slots]) => (
+                        <Box
+                          key={dateKey}
+                          sx={{ flex: '1 0 110px', border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}
+                        >
+                          <Box sx={{ bgcolor: 'primary.main', px: 1, py: 0.75, textAlign: 'center' }}>
+                            <Typography variant="caption" sx={{ color: 'primary.contrastText', fontWeight: 700, display: 'block' }}>
+                              {dayjs(dateKey).format('ddd')}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
+                              {dayjs(dateKey).format('MMM D')}
+                            </Typography>
+                          </Box>
+                          <Stack spacing={0.5} sx={{ p: 0.75 }}>
+                            {slots.map((s) => {
+                              const sel = bookForm.slot_id === String(s.id);
+                              return (
+                                <Box
+                                  key={s.id}
+                                  onClick={() => { if (!booking) setBookForm((f) => ({ ...f, slot_id: String(s.id) })); }}
+                                  sx={{
+                                    px: 1, py: 0.5, borderRadius: 1, cursor: 'pointer', textAlign: 'center',
+                                    bgcolor: sel ? 'primary.main' : 'action.hover',
+                                    color: sel ? 'primary.contrastText' : 'text.primary',
+                                    border: '1px solid',
+                                    borderColor: sel ? 'primary.dark' : 'transparent',
+                                    '&:hover': { bgcolor: sel ? 'primary.dark' : 'action.selected' },
+                                    transition: 'background-color 0.15s',
+                                  }}
+                                >
+                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
+                                    {dayjs(s.start_time).format('HH:mm')}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                                    {dayjs(s.end_time).format('HH:mm')}
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                );
+              })()
+            ) : null}
+
+            {bookForm.slot_id ? (
+              <Typography variant="body2" color="primary.main">
+                Selected: {(() => { const s = availableSlots.find((x) => String(x.id) === bookForm.slot_id); return s ? `${dayjs(s.start_time).format('ddd, MMM D')} at ${dayjs(s.start_time).format('HH:mm')} – ${dayjs(s.end_time).format('HH:mm')}` : ''; })()}
+              </Typography>
+            ) : null}
 
             <TextField
               label="Reason for Visit (optional)"
@@ -491,7 +574,7 @@ export default function Page(): React.JSX.Element {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setBookOpen(false); }} disabled={booking}>Cancel</Button>
-          <Button onClick={() => { void handleBook(); }} variant="contained" disabled={booking}>
+          <Button onClick={() => { void handleBook(); }} variant="contained" disabled={booking || !bookForm.doctor_id || !bookForm.slot_id}>
             {booking ? 'Booking…' : 'Book Appointment'}
           </Button>
         </DialogActions>

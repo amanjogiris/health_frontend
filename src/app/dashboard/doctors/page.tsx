@@ -31,14 +31,16 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
 import { MinusCircleIcon } from '@phosphor-icons/react/dist/ssr/MinusCircle';
+import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { StethoscopeIcon } from '@phosphor-icons/react/dist/ssr/Stethoscope';
 import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
+import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
-import { deleteDoctor, getClinics, getDoctors, registerDoctor } from '@/lib/api';
+import type { AppointmentSlotResponse, AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
+import { bookAppointment, deleteDoctor, getClinics, getDoctors, getSlots, registerDoctor } from '@/lib/api';
 
 const DOW_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -82,6 +84,7 @@ export default function Page(): React.JSX.Element {
   const { user } = useUser();
   const role = user?.role as UserRole | undefined;
   const isAdmin = role === 'admin' || role === 'super_admin';
+  const isPatient = role === 'patient';
 
   const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
   const [clinics, setClinics] = React.useState<ClinicResponse[]>([]);
@@ -101,6 +104,15 @@ export default function Page(): React.JSX.Element {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = React.useState<DoctorResponse | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+
+  // Patient book-from-doctor dialog
+  const [bookTarget, setBookTarget] = React.useState<DoctorResponse | null>(null);
+  const [bookSlots, setBookSlots] = React.useState<AppointmentSlotResponse[]>([]);
+  const [bookSlotId, setBookSlotId] = React.useState('');
+  const [bookReason, setBookReason] = React.useState('');
+  const [bookSlotsLoading, setBookSlotsLoading] = React.useState(false);
+  const [bookingInProgress, setBookingInProgress] = React.useState(false);
+  const [bookError, setBookError] = React.useState<string | null>(null);
 
   const loadDoctors = React.useCallback((): void => {
     setLoading(true);
@@ -211,6 +223,39 @@ export default function Page(): React.JSX.Element {
     }
   }
 
+  function openBookDialog(doctor: DoctorResponse): void {
+    setBookTarget(doctor);
+    setBookSlotId('');
+    setBookReason('');
+    setBookError(null);
+    setBookSlots([]);
+    setBookSlotsLoading(true);
+    getSlots({ doctor_id: doctor.id, limit: 1000 })
+      .then((slots) => { setBookSlots(slots.filter((s) => !s.is_booked && s.is_active)); })
+      .catch(() => { setBookError('Failed to load available slots.'); })
+      .finally(() => { setBookSlotsLoading(false); });
+  }
+
+  async function handleBook(): Promise<void> {
+    if (!bookTarget || !bookSlotId || !user?.id) return;
+    setBookingInProgress(true);
+    setBookError(null);
+    try {
+      await bookAppointment({
+        patient_id: Number(user.id),
+        doctor_id: bookTarget.id,
+        clinic_id: bookTarget.clinic_id,
+        slot_id: Number(bookSlotId),
+        reason_for_visit: bookReason || undefined,
+      });
+      setBookTarget(null);
+    } catch (err: unknown) {
+      setBookError(err instanceof Error ? err.message : 'Booking failed.');
+    } finally {
+      setBookingInProgress(false);
+    }
+  }
+
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={3} sx={{ alignItems: 'flex-start' }}>
@@ -266,19 +311,19 @@ export default function Page(): React.JSX.Element {
                 <TableCell>Duration</TableCell>
                 <TableCell>Max Pts/Day</TableCell>
                 <TableCell>Status</TableCell>
-                {isAdmin ? <TableCell align="right">Actions</TableCell> : null}
+                {isAdmin || isPatient ? <TableCell align="right">Actions</TableCell> : null}
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 10 : 9}>
+                  <TableCell colSpan={isAdmin || isPatient ? 10 : 9}>
                     <Typography variant="body2" color="text.secondary">Loading doctors...</Typography>
                   </TableCell>
                 </TableRow>
               ) : paginated.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 10 : 9}>
+                  <TableCell colSpan={isAdmin || isPatient ? 10 : 9}>
                     <Typography variant="body2" color="text.secondary">No doctors found.</Typography>
                   </TableCell>
                 </TableRow>
@@ -329,6 +374,14 @@ export default function Page(): React.JSX.Element {
                         <Tooltip title="Delete doctor">
                           <IconButton color="error" size="small" onClick={() => { setDeleteTarget(doctor); }}>
                             <TrashIcon fontSize="var(--icon-fontSize-md)" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    ) : isPatient ? (
+                      <TableCell align="right">
+                        <Tooltip title="Book appointment">
+                          <IconButton color="primary" size="small" onClick={() => { openBookDialog(doctor); }}>
+                            <CalendarPlusIcon fontSize="var(--icon-fontSize-md)" />
                           </IconButton>
                         </Tooltip>
                       </TableCell>
@@ -529,6 +582,128 @@ export default function Page(): React.JSX.Element {
           <Button onClick={() => { setDeleteTarget(null); }} disabled={deleting}>Cancel</Button>
           <Button onClick={() => { void handleDelete(); }} color="error" variant="contained" disabled={deleting}>
             {deleting ? 'Deleting\u2026' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Book Appointment Dialog (patient) ─────────────────────────────── */}
+      <Dialog
+        open={Boolean(bookTarget)}
+        onClose={() => { if (!bookingInProgress) setBookTarget(null); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Book Appointment — {bookTarget?.doctor_name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {bookError ? <Typography color="error" variant="body2">{bookError}</Typography> : null}
+
+            {/* Clinic info */}
+            <Typography variant="body2" color="text.secondary">
+              <strong>Clinic:</strong> {bookTarget?.clinic_name ?? '—'}
+            </Typography>
+
+            {/* Week calendar */}
+            {bookSlotsLoading ? (
+              <Typography variant="body2" color="text.secondary">Loading available slots…</Typography>
+            ) : bookSlots.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No available slots for this doctor in the next 7 days.</Typography>
+            ) : (() => {
+              // Group slots by date string (YYYY-MM-DD)
+              const byDay = new Map<string, typeof bookSlots>();
+              for (const s of bookSlots) {
+                const key = dayjs(s.start_time).format('YYYY-MM-DD');
+                if (!byDay.has(key)) byDay.set(key, []);
+                byDay.get(key)!.push(s);
+              }
+              const days = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
+              return (
+                <Box sx={{ overflowX: 'auto' }}>
+                  <Stack direction="row" spacing={1} sx={{ minWidth: days.length * 120 }}>
+                    {days.map(([dateKey, slots]) => (
+                      <Box
+                        key={dateKey}
+                        sx={{
+                          flex: '1 0 110px',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {/* Day header */}
+                        <Box sx={{ bgcolor: 'primary.main', px: 1, py: 0.75, textAlign: 'center' }}>
+                          <Typography variant="caption" sx={{ color: 'primary.contrastText', fontWeight: 700, display: 'block' }}>
+                            {dayjs(dateKey).format('ddd')}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
+                            {dayjs(dateKey).format('MMM D')}
+                          </Typography>
+                        </Box>
+                        {/* Slots */}
+                        <Stack spacing={0.5} sx={{ p: 0.75 }}>
+                          {slots.map((s) => {
+                            const selected = bookSlotId === String(s.id);
+                            return (
+                              <Box
+                                key={s.id}
+                                onClick={() => { if (!bookingInProgress) setBookSlotId(String(s.id)); }}
+                                sx={{
+                                  px: 1,
+                                  py: 0.5,
+                                  borderRadius: 1,
+                                  cursor: 'pointer',
+                                  textAlign: 'center',
+                                  bgcolor: selected ? 'primary.main' : 'action.hover',
+                                  color: selected ? 'primary.contrastText' : 'text.primary',
+                                  border: '1px solid',
+                                  borderColor: selected ? 'primary.dark' : 'transparent',
+                                  '&:hover': { bgcolor: selected ? 'primary.dark' : 'action.selected' },
+                                  transition: 'background-color 0.15s',
+                                }}
+                              >
+                                <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
+                                  {dayjs(s.start_time).format('HH:mm')}
+                                </Typography>
+                                <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                                  {dayjs(s.end_time).format('HH:mm')}
+                                </Typography>
+                              </Box>
+                            );
+                          })}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+              );
+            })()}
+
+            {bookSlotId ? (
+              <Typography variant="body2" color="primary.main">
+                Selected: {(() => { const s = bookSlots.find((x) => String(x.id) === bookSlotId); return s ? `${dayjs(s.start_time).format('ddd, MMM D')} at ${dayjs(s.start_time).format('HH:mm')} – ${dayjs(s.end_time).format('HH:mm')}` : ''; })()}
+              </Typography>
+            ) : null}
+
+            <TextField
+              label="Reason for Visit (optional)"
+              multiline
+              rows={2}
+              fullWidth
+              value={bookReason}
+              onChange={(e) => { setBookReason(e.target.value); }}
+              disabled={bookingInProgress}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setBookTarget(null); }} disabled={bookingInProgress}>Cancel</Button>
+          <Button
+            onClick={() => { void handleBook(); }}
+            variant="contained"
+            disabled={bookingInProgress || !bookSlotId}
+          >
+            {bookingInProgress ? 'Booking…' : 'Book Appointment'}
           </Button>
         </DialogActions>
       </Dialog>

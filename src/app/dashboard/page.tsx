@@ -48,6 +48,7 @@ const statusConfig: Record<
   string,
   { label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }
 > = {
+  booked: { label: 'Booked', color: 'primary' },
   pending: { label: 'Pending', color: 'warning' },
   confirmed: { label: 'Confirmed', color: 'info' },
   completed: { label: 'Completed', color: 'success' },
@@ -92,10 +93,12 @@ function AppointmentTable({
   appointments,
   loading,
   title = 'Appointments',
+  doctors = [],
 }: {
   appointments: AppointmentResponse[];
   loading: boolean;
   title?: string;
+  doctors?: DoctorResponse[];
 }): React.JSX.Element {
   return (
     <Card>
@@ -105,7 +108,6 @@ function AppointmentTable({
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>ID</TableCell>
               <TableCell>Doctor</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Reason</TableCell>
@@ -114,16 +116,22 @@ function AppointmentTable({
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={5}><Typography variant="body2" color="text.secondary">Loading…</Typography></TableCell></TableRow>
+              <TableRow><TableCell colSpan={4}><Typography variant="body2" color="text.secondary">Loading…</Typography></TableCell></TableRow>
             ) : appointments.length === 0 ? (
-              <TableRow><TableCell colSpan={5}><Typography variant="body2" color="text.secondary">No appointments found.</Typography></TableCell></TableRow>
+              <TableRow><TableCell colSpan={4}><Typography variant="body2" color="text.secondary">No appointments found.</Typography></TableCell></TableRow>
             ) : (
               appointments.slice(0, 8).map((appt) => {
                 const cfg = statusConfig[appt.status] ?? { label: appt.status, color: 'default' as const };
+                const doc = doctors.find((d) => d.id === appt.doctor_id);
+                const doctorLabel = doc?.doctor_name ?? (doc ? `Doctor #${doc.id}` : `Doctor #${appt.doctor_id}`);
                 return (
                   <TableRow key={appt.id} hover>
-                    <TableCell>#{appt.id}</TableCell>
-                    <TableCell>#{appt.doctor_id}</TableCell>
+                    <TableCell>
+                      <Stack spacing={0}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{doctorLabel}</Typography>
+                        {doc ? <Typography variant="caption" color="text.secondary">{doc.specialty}</Typography> : null}
+                      </Stack>
+                    </TableCell>
                     <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
                     <TableCell>{appt.reason_for_visit ?? '—'}</TableCell>
                     <TableCell>{appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY') : '—'}</TableCell>
@@ -142,17 +150,22 @@ function AppointmentTable({
 
 function PatientDashboard({ userId }: { userId: number }): React.JSX.Element {
   const [appointments, setAppointments] = React.useState<AppointmentResponse[]>([]);
+  const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    getPatientAppointments(userId)
-      .then(setAppointments)
-      .catch(() => { /* noop */ })
-      .finally(() => { setLoading(false); });
+    async function load(): Promise<void> {
+      try {
+        const [appts, docs] = await Promise.all([getPatientAppointments(userId), getDoctors()]);
+        setAppointments(appts);
+        setDoctors(docs);
+      } catch { /* noop */ } finally { setLoading(false); }
+    }
+    void load();
   }, [userId]);
 
-  const pending = appointments.filter((a) => a.status === 'pending').length;
-  const upcoming = appointments.filter((a) => ['pending', 'confirmed'].includes(a.status)).length;
+  const booked = appointments.filter((a) => a.status === 'booked').length;
+  const cancelled = appointments.filter((a) => a.status === 'cancelled').length;
 
   return (
     <Grid container spacing={3}>
@@ -168,13 +181,13 @@ function PatientDashboard({ userId }: { userId: number }): React.JSX.Element {
           color="var(--mui-palette-primary-main)" />
       </Grid>
       <Grid size={{ lg: 4, sm: 6, xs: 12 }}>
-        <StatCard title="Upcoming" value={loading ? '…' : upcoming}
-          icon={<ClockIcon fontSize="var(--icon-fontSize-lg)" />}
-          color="var(--mui-palette-warning-main)" />
+        <StatCard title="Booked" value={loading ? '…' : booked}
+          icon={<CheckCircleIcon fontSize="var(--icon-fontSize-lg)" />}
+          color="var(--mui-palette-success-main)" />
       </Grid>
       <Grid size={{ lg: 4, sm: 6, xs: 12 }}>
-        <StatCard title="Pending" value={loading ? '…' : pending}
-          icon={<CalendarBlankIcon fontSize="var(--icon-fontSize-lg)" />}
+        <StatCard title="Cancelled" value={loading ? '…' : cancelled}
+          icon={<XCircleIcon fontSize="var(--icon-fontSize-lg)" />}
           color="var(--mui-palette-error-main)" />
       </Grid>
       <Grid size={{ xs: 12 }}>
@@ -184,7 +197,7 @@ function PatientDashboard({ userId }: { userId: number }): React.JSX.Element {
         </Stack>
       </Grid>
       <Grid size={{ xs: 12 }}>
-        <AppointmentTable appointments={appointments} loading={loading} title="My Appointment History" />
+        <AppointmentTable appointments={appointments} loading={loading} title="My Appointment History" doctors={doctors} />
       </Grid>
     </Grid>
   );
@@ -371,7 +384,7 @@ function AdminDashboard(): React.JSX.Element {
         </Card>
       </Grid>
       <Grid size={{ xs: 12 }}>
-        <AppointmentTable appointments={appointments} loading={loading} title="Recent Appointments" />
+        <AppointmentTable appointments={appointments} loading={loading} title="Recent Appointments" doctors={doctors} />
       </Grid>
     </Grid>
   );

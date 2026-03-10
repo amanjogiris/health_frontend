@@ -99,13 +99,14 @@ export interface AppointmentResponse {
   doctor_id: number;
   clinic_id: number;
   slot_id: number;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show' | 'rejected';
+  status: 'pending' | 'booked' | 'confirmed' | 'cancelled' | 'completed' | 'no_show' | 'rejected';
   reason_for_visit?: string;
   notes?: string;
   cancelled_at?: string;
   cancelled_reason?: string;
   created_at?: string;
   updated_at?: string;
+  patient_name?: string;
 }
 
 export interface PatientResponse {
@@ -147,12 +148,16 @@ export async function getSlots(params?: {
   clinic_id?: number;
   date_from?: string;
   date_to?: string;
+  limit?: number;
+  include_all?: boolean;
 }): Promise<AppointmentSlotResponse[]> {
   const qs = new URLSearchParams();
   if (params?.doctor_id) qs.set('doctor_id', String(params.doctor_id));
   if (params?.clinic_id) qs.set('clinic_id', String(params.clinic_id));
   if (params?.date_from) qs.set('date_from', params.date_from);
   if (params?.date_to) qs.set('date_to', params.date_to);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.include_all) qs.set('include_all', 'true');
   return apiFetch<AppointmentSlotResponse[]>(`/api/v1/slots?${qs}`);
 }
 
@@ -166,6 +171,48 @@ export async function getPatientAppointments(patientId: number): Promise<Appoint
 
 export async function getPatient(patientId: number): Promise<PatientResponse> {
   return apiFetch<PatientResponse>(`/api/v1/patients/${patientId}`);
+}
+
+export async function updateMyProfile(data: { name?: string; mobile_no?: string; address?: string }): Promise<unknown> {
+  const result = await apiFetch<unknown>('/api/v1/auth/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  // Update the localStorage cache so checkSession() picks up fresh data
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('custom-auth-user', JSON.stringify(result));
+  }
+  return result;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiFetch<unknown>('/api/v1/auth/password', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function uploadProfileImage(file: File): Promise<unknown> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('custom-auth-token') : null;
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/auth/profile/image`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error((err as { detail?: string }).detail ?? 'Upload failed');
+  }
+  const result: unknown = await res.json();
+  // Update the localStorage cache
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('custom-auth-user', JSON.stringify(result));
+  }
+  return result;
 }
 
 export async function cancelAppointment(appointmentId: number, reason: string): Promise<AppointmentResponse> {

@@ -7,6 +7,7 @@ export interface User {
   role?: UserRole;
   mobile_no?: string;
   address?: string;
+  image?: string;
   is_verified?: boolean;
   is_active?: boolean;
   last_login?: string | null;
