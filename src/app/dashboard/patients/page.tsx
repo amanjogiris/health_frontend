@@ -67,6 +67,7 @@ function PatientsContent(): React.JSX.Element {
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(10);
+  const [total, setTotal] = React.useState(0);
 
   // Edit dialog
   const [editTarget, setEditTarget] = React.useState<PatientResponse | null>(null);
@@ -81,24 +82,16 @@ function PatientsContent(): React.JSX.Element {
   const load = React.useCallback((): void => {
     setLoading(true);
     setError(null);
-    getPatients()
-      .then(setPatients)
+    getPatients(page * rowsPerPage, rowsPerPage, search || undefined)
+      .then((result) => { setPatients(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, []);
+  }, [page, rowsPerPage, search]);
 
   React.useEffect(() => { load(); }, [load]);
 
-  const filtered = patients.filter((p) => {
-    const q = search.toLowerCase();
-    return (
-      (p.patient_name ?? '').toLowerCase().includes(q) ||
-      (p.email ?? '').toLowerCase().includes(q) ||
-      (p.blood_group ?? '').toLowerCase().includes(q) ||
-      String(p.id).includes(q)
-    );
-  });
-  const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  // Server handles filtering; paginated = what the server returned for this page
+  const paginated = patients;
 
   function openEdit(patient: PatientResponse): void {
     setEditTarget(patient);
@@ -160,7 +153,7 @@ function PatientsContent(): React.JSX.Element {
         <Stack spacing={1} sx={{ flex: '1 1 auto' }}>
           <Typography variant="h4">Patients</Typography>
           <Typography color="text.secondary" variant="body2">
-            {loading ? 'Loading...' : `${filtered.length} patient${filtered.length !== 1 ? 's' : ''} found`}
+            {loading ? 'Loading...' : `${total} patient${total !== 1 ? 's' : ''} found`}
           </Typography>
         </Stack>
         <Tooltip title="Refresh">
@@ -293,7 +286,7 @@ function PatientsContent(): React.JSX.Element {
         <Divider />
         <TablePagination
           component="div"
-          count={filtered.length}
+          count={total}
           onPageChange={(_, p) => { setPage(p); }}
           page={page}
           rowsPerPage={rowsPerPage}

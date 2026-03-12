@@ -46,6 +46,7 @@ function AdminsContent(): React.JSX.Element {
   const [error, setError] = React.useState<string | null>(null);
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(10);
+  const [total, setTotal] = React.useState(0);
 
   // Create dialog state
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -60,15 +61,16 @@ function AdminsContent(): React.JSX.Element {
   const load = React.useCallback((): void => {
     setLoading(true);
     setError(null);
-    getAdmins()
-      .then(setAdmins)
+    getAdmins(page * rowsPerPage, rowsPerPage)
+      .then((result) => { setAdmins(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, []);
+  }, [page, rowsPerPage]);
 
   React.useEffect(() => { load(); }, [load]);
 
-  const paginated = admins.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  // Server already paginates; use all returned items for this page
+  const paginated = admins;
 
   function handleCreateOpen(): void {
     setForm({ name: '', email: '', password: '', mobile_no: '' });
@@ -119,7 +121,7 @@ function AdminsContent(): React.JSX.Element {
         <Stack spacing={1} sx={{ flex: '1 1 auto' }}>
           <Typography variant="h4">Admin Management</Typography>
           <Typography color="text.secondary" variant="body2">
-            {loading ? 'Loading...' : `${admins.length} admin${admins.length !== 1 ? 's' : ''} total`}
+            {loading ? 'Loading...' : `${total} admin${total !== 1 ? 's' : ''} total`}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={2}>
@@ -224,7 +226,7 @@ function AdminsContent(): React.JSX.Element {
         <Divider />
         <TablePagination
           component="div"
-          count={admins.length}
+          count={total}
           onPageChange={(_, p) => { setPage(p); }}
           page={page}
           rowsPerPage={rowsPerPage}

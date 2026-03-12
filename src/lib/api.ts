@@ -31,6 +31,13 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 export interface AvailabilityInput {
   day_of_week: number; // 0 = Monday … 6 = Sunday
   start_time: string;  // "HH:MM"
@@ -130,20 +137,27 @@ export interface PatientResponse {
 
 // ─── API Functions ─────────────────────────────────────────────────────────────
 
-export async function getDoctors(params?: { specialty?: string; clinic_id?: number }): Promise<DoctorResponse[]> {
+export async function getDoctors(params?: { specialty?: string; clinic_id?: number; skip?: number; limit?: number; search?: string }): Promise<PaginatedResponse<DoctorResponse>> {
   const qs = new URLSearchParams();
   if (params?.specialty) qs.set('specialty', params.specialty);
   if (params?.clinic_id) qs.set('clinic_id', String(params.clinic_id));
-  return apiFetch<DoctorResponse[]>(`/api/v1/doctors?${qs}`);
+  if (params?.skip !== undefined) qs.set('skip', String(params.skip));
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+  if (params?.search) qs.set('search', params.search);
+  return apiFetch<PaginatedResponse<DoctorResponse>>(`/api/v1/doctors?${qs}`);
 }
 
 export async function getDoctor(id: number): Promise<DoctorResponse> {
   return apiFetch<DoctorResponse>(`/api/v1/doctors/${id}`);
 }
 
-export async function getClinics(city?: string): Promise<ClinicResponse[]> {
-  const qs = city ? `?city=${encodeURIComponent(city)}` : '';
-  return apiFetch<ClinicResponse[]>(`/api/v1/clinics${qs}`);
+export async function getClinics(params?: { city?: string; skip?: number; limit?: number; search?: string }): Promise<PaginatedResponse<ClinicResponse>> {
+  const qs = new URLSearchParams();
+  if (params?.city) qs.set('city', params.city);
+  if (params?.skip !== undefined) qs.set('skip', String(params.skip));
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+  if (params?.search) qs.set('search', params.search);
+  return apiFetch<PaginatedResponse<ClinicResponse>>(`/api/v1/clinics?${qs}`);
 }
 
 export async function getClinic(id: number): Promise<ClinicResponse> {
@@ -168,8 +182,11 @@ export async function getSlots(params?: {
   return apiFetch<AppointmentSlotResponse[]>(`/api/v1/slots?${qs}`);
 }
 
-export async function getAppointments(skip = 0, limit = 100): Promise<AppointmentResponse[]> {
-  return apiFetch<AppointmentResponse[]>(`/api/v1/appointments?skip=${skip}&limit=${limit}`);
+export async function getAppointments(skip = 0, limit = 10, search?: string, status?: string): Promise<PaginatedResponse<AppointmentResponse>> {
+  const qs = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+  if (search) qs.set('search', search);
+  if (status && status !== 'all') qs.set('status', status);
+  return apiFetch<PaginatedResponse<AppointmentResponse>>(`/api/v1/appointments?${qs}`);
 }
 
 export async function getPatientAppointments(patientId: number): Promise<AppointmentResponse[]> {
@@ -283,8 +300,8 @@ export interface AdminUserResponse {
   created_at?: string | null;
 }
 
-export async function getAdmins(): Promise<AdminUserResponse[]> {
-  return apiFetch<AdminUserResponse[]>('/api/v1/admins');
+export async function getAdmins(skip = 0, limit = 10): Promise<PaginatedResponse<AdminUserResponse>> {
+  return apiFetch<PaginatedResponse<AdminUserResponse>>(`/api/v1/admins?skip=${skip}&limit=${limit}`);
 }
 
 export async function createAdmin(data: {
@@ -381,8 +398,10 @@ export async function updateDoctor(
 
 // ─── Patient management (ADMIN / SUPER_ADMIN) ─────────────────────────────────
 
-export async function getPatients(skip = 0, limit = 100): Promise<PatientResponse[]> {
-  return apiFetch<PatientResponse[]>(`/api/v1/patients?skip=${skip}&limit=${limit}`);
+export async function getPatients(skip = 0, limit = 10, search?: string): Promise<PaginatedResponse<PatientResponse>> {
+  const qs = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+  if (search) qs.set('search', search);
+  return apiFetch<PaginatedResponse<PatientResponse>>(`/api/v1/patients?${qs}`);
 }
 
 export async function adminUpdatePatient(

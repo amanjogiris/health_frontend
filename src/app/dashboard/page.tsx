@@ -155,9 +155,9 @@ function PatientDashboard({ userId }: { userId: number }): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [appts, docs] = await Promise.all([getPatientAppointments(userId), getDoctors()]);
+        const [appts, docs] = await Promise.all([getPatientAppointments(userId), getDoctors({ skip: 0, limit: 200 })]);
         setAppointments(appts);
-        setDoctors(docs);
+        setDoctors(docs.items);
       } catch { /* noop */ } finally { setLoading(false); }
     }
     void load();
@@ -275,16 +275,16 @@ function AdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins] = await Promise.all([getDoctors(), getClinics()]);
-        setDoctors(docs); setClinics(clins);
-        try { setAppointments(await getAppointments()); } catch { /* admin-only */ }
+        const [docs, clins] = await Promise.all([getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 })]);
+        setDoctors(docs.items); setClinics(clins.items);
+        try { setAppointments((await getAppointments(0, 200)).items); } catch { /* admin-only */ }
       } finally { setLoading(false); }
     }
     void load();
   }, []);
 
   const statusCounts = React.useMemo(() => {
-    const c: Record<string, number> = { pending: 0, confirmed: 0, completed: 0, cancelled: 0, no_show: 0 };
+    const c: Record<string, number> = { booked: 0, cancelled: 0 };
     appointments.forEach((a) => { if (c[a.status] !== undefined) c[a.status]++; });
     return c;
   }, [appointments]);
@@ -470,9 +470,9 @@ function SuperAdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins] = await Promise.all([getDoctors(), getClinics()]);
-        setDoctors(docs); setClinics(clins);
-        try { setAppointments(await getAppointments()); } catch { /* noop */ }
+        const [docs, clins] = await Promise.all([getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 })]);
+        setDoctors(docs.items); setClinics(clins.items);
+        try { setAppointments((await getAppointments(0, 200)).items); } catch { /* noop */ }
       } finally { setLoading(false); }
     }
     void load();

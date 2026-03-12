@@ -18,6 +18,7 @@ import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import OutlinedInput from '@mui/material/OutlinedInput';
 import Stack from '@mui/material/Stack';
+import TablePagination from '@mui/material/TablePagination';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -61,6 +62,9 @@ export default function Page(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState('');
+  const [page, setPage] = React.useState(0);
+  const [rowsPerPage] = React.useState(12);
+  const [total, setTotal] = React.useState(0);
 
   // Create dialog
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -80,19 +84,15 @@ export default function Page(): React.JSX.Element {
 
   const load = React.useCallback((): void => {
     setLoading(true);
-    getClinics()
-      .then(setClinics)
+    getClinics({ skip: page * rowsPerPage, limit: rowsPerPage, search: search || undefined })
+      .then((result) => { setClinics(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, []);
+  }, [page, rowsPerPage, search]);
 
   React.useEffect(() => { load(); }, [load]);
 
-  const filtered = clinics.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.city.toLowerCase().includes(search.toLowerCase()) ||
-    c.state.toLowerCase().includes(search.toLowerCase())
-  );
+  // Server handles filtering; clinics = current page's data
 
   // ── Create ─────────────────────────────────────────────────────────────────
   async function handleCreate(): Promise<void> {
@@ -162,13 +162,13 @@ export default function Page(): React.JSX.Element {
         <Stack spacing={1} sx={{ flex: '1 1 auto' }}>
           <Typography variant="h4">Clinics</Typography>
           <Typography color="text.secondary" variant="body2">
-            {loading ? 'Loading...' : `${filtered.length} clinic${filtered.length !== 1 ? 's' : ''} found`}
+            {loading ? 'Loading...' : `${total} clinic${total !== 1 ? 's' : ''} found`}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
           <OutlinedInput
             value={search}
-            onChange={(e) => { setSearch(e.target.value); }}
+            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
             placeholder="Search name, city, state…"
             size="small"
             startAdornment={
@@ -195,11 +195,12 @@ export default function Page(): React.JSX.Element {
       {/* ── Clinic cards ────────────────────────────────────────────────── */}
       {loading ? (
         <Typography color="text.secondary">Loading clinics from /api/v1/clinics…</Typography>
-      ) : filtered.length === 0 ? (
+      ) : clinics.length === 0 ? (
         <Typography color="text.secondary">No clinics found.</Typography>
       ) : (
-        <Grid container spacing={3}>
-          {filtered.map((clinic) => (
+        <>
+          <Grid container spacing={3}>
+            {clinics.map((clinic) => (
             <Grid key={clinic.id} size={{ lg: 4, md: 6, xs: 12 }}>
               <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <CardContent sx={{ flex: 1 }}>
@@ -268,8 +269,17 @@ export default function Page(): React.JSX.Element {
                 ) : null}
               </Card>
             </Grid>
-          ))}
-        </Grid>
+            ))}
+          </Grid>
+          <TablePagination
+            component="div"
+            count={total}
+            onPageChange={(_, p) => { setPage(p); }}
+            page={page}
+            rowsPerPage={rowsPerPage}
+            rowsPerPageOptions={[12]}
+          />
+        </>
       )}
 
       {/* ── Create Clinic Dialog ─────────────────────────────────────────── */}

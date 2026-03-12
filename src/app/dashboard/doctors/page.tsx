@@ -94,6 +94,7 @@ export default function Page(): React.JSX.Element {
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(10);
+  const [total, setTotal] = React.useState(0);
 
   // Create dialog
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -123,11 +124,11 @@ export default function Page(): React.JSX.Element {
 
   const loadDoctors = React.useCallback((): void => {
     setLoading(true);
-    getDoctors()
-      .then(setDoctors)
+    getDoctors({ skip: page * rowsPerPage, limit: rowsPerPage, search: search || undefined })
+      .then((result) => { setDoctors(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, []);
+  }, [page, rowsPerPage, search]);
 
   React.useEffect(() => { loadDoctors(); }, [loadDoctors]);
 
@@ -137,22 +138,14 @@ export default function Page(): React.JSX.Element {
     setCreateError(null);
     setCreateOpen(true);
     if (clinics.length === 0) {
-      getClinics()
-        .then(setClinics)
+      getClinics({ skip: 0, limit: 200 })
+        .then((result) => setClinics(result.items))
         .catch(() => { /* non-fatal */ });
     }
   }
 
-  const filtered = doctors.filter((d) => {
-    const q = search.toLowerCase();
-    return (
-      (d.doctor_name ?? '').toLowerCase().includes(q) ||
-      d.specialty.toLowerCase().includes(q) ||
-      d.license_number.toLowerCase().includes(q) ||
-      (d.clinic_name ?? '').toLowerCase().includes(q)
-    );
-  });
-  const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  // Server already filtered and paginated
+  const paginated = doctors;
 
   function setField(key: keyof RegisterDoctorForm, value: string): void {
     setForm((f) => ({ ...f, [key]: value }));
@@ -246,7 +239,9 @@ export default function Page(): React.JSX.Element {
       clinic_id: String(doctor.clinic_id),
     });
     if (clinics.length === 0) {
-      getClinics().then(setClinics).catch(() => { /* non-fatal */ });
+      getClinics({ skip: 0, limit: 200 })
+        .then((result) => setClinics(result.items))
+        .catch(() => { /* non-fatal */ });
     }
   }
 
@@ -315,7 +310,7 @@ export default function Page(): React.JSX.Element {
         <Stack spacing={1} sx={{ flex: '1 1 auto' }}>
           <Typography variant="h4">Doctors</Typography>
           <Typography color="text.secondary" variant="body2">
-            {loading ? 'Loading...' : `${filtered.length} doctor${filtered.length !== 1 ? 's' : ''} found`}
+            {loading ? 'Loading...' : `${total} doctor${total !== 1 ? 's' : ''} found`}
           </Typography>
         </Stack>
         {isAdmin ? (
@@ -453,7 +448,7 @@ export default function Page(): React.JSX.Element {
         <Divider />
         <TablePagination
           component="div"
-          count={filtered.length}
+          count={total}
           onPageChange={(_, p) => { setPage(p); }}
           page={page}
           rowsPerPage={rowsPerPage}

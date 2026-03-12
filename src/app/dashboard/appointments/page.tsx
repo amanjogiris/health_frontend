@@ -35,7 +35,9 @@ import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AppointmentResponse, AppointmentSlotResponse, ClinicResponse, DoctorResponse } from '@/lib/api';
+import Avatar from '@mui/material/Avatar';
+import CircularProgress from '@mui/material/CircularProgress';
+import type { AppointmentResponse, AppointmentSlotResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
 import {
   bookAppointment,
   cancelAppointment,
@@ -44,6 +46,7 @@ import {
   getDoctorAppointments,
   getDoctors,
   getPatientAppointments,
+  getPatients,
   getSlots,
 } from '@/lib/api';
 
@@ -74,8 +77,10 @@ export default function Page(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
+  const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(10);
+  const [total, setTotal] = React.useState(0);
 
   // Cancel dialog
   const [cancelTarget, setCancelTarget] = React.useState<AppointmentResponse | null>(null);
@@ -95,28 +100,38 @@ export default function Page(): React.JSX.Element {
   const [slotsLoading, setSlotsLoading] = React.useState(false);
   const [doctorSearch, setDoctorSearch] = React.useState('');
 
+  // Patient search (for admin/doctor booking)
+  const [patientSearch, setPatientSearch] = React.useState('');
+  const [patients, setPatients] = React.useState<PatientResponse[]>([]);
+  const [patientsLoading, setPatientsLoading] = React.useState(false);
+  const [selectedPatient, setSelectedPatient] = React.useState<PatientResponse | null>(null);
+
   const load = React.useCallback((): void => {
     if (!user) return;
     setLoading(true);
     setError(null);
-    let fetchFn: Promise<AppointmentResponse[]>;
     if (isPatient) {
-      fetchFn = getPatientAppointments(Number(user.id));
+      getPatientAppointments(Number(user.id))
+        .then((data) => { setAppointments(data); setTotal(data.length); })
+        .catch((err: Error) => { setError(err.message); })
+        .finally(() => { setLoading(false); });
     } else if (isDoctor) {
-      fetchFn = getDoctorAppointments(0, 100);
+      getDoctorAppointments(0, 200)
+        .then((data) => { setAppointments(data); setTotal(data.length); })
+        .catch((err: Error) => { setError(err.message); })
+        .finally(() => { setLoading(false); });
     } else {
-      fetchFn = getAppointments(0, 100);
+      getAppointments(page * rowsPerPage, rowsPerPage, searchQuery || undefined, statusFilter !== 'all' ? statusFilter : undefined)
+        .then((result) => { setAppointments(result.items); setTotal(result.total); })
+        .catch((err: Error) => { setError(err.message); })
+        .finally(() => { setLoading(false); });
     }
-    fetchFn
-      .then(setAppointments)
-      .catch((err: Error) => { setError(err.message); })
-      .finally(() => { setLoading(false); });
-  }, [user, isPatient, isDoctor]);
+  }, [user, isPatient, isDoctor, page, rowsPerPage, searchQuery, statusFilter]);
 
   // Load lookup data (doctors, clinics, slots) once so the table can resolve IDs to names
   React.useEffect((): void => {
-    void Promise.all([getDoctors(), getClinics(), getSlots({ limit: 1000, include_all: true })])
-      .then(([d, c, s]) => { setDoctors(d); setClinics(c); setAllSlots(s); })
+    void Promise.all([getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 }), getSlots({ limit: 1000, include_all: true })])
+      .then(([d, c, s]) => { setDoctors(d.items); setClinics(c.items); setAllSlots(s); })
       .catch(() => { /* non-fatal */ });
   }, []);
 
@@ -137,8 +152,27 @@ export default function Page(): React.JSX.Element {
     return dayjs(s.start_time).format('MMM D, HH:mm');
   };
 
-  const filtered = appointments.filter((a) => statusFilter === 'all' || a.status === statusFilter);
-  const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  // For patient/doctor views: filter and paginate client-side.
+  // For admin view: the server already returns the correct page.
+  const clientFiltered = (isPatient || isDoctor) ? appointments.filter((a) => {
+    const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return matchesStatus;
+    const matchesSearch =
+      (a.patient_name ?? `Patient #${a.patient_id}`).toLowerCase().includes(q) ||
+      doctorName(a.doctor_id).toLowerCase().includes(q) ||
+      clinicName(a.clinic_id).toLowerCase().includes(q) ||
+      (a.reason_for_visit ?? '').toLowerCase().includes(q) ||
+      (a.notes ?? '').toLowerCase().includes(q) ||
+      (a.cancelled_reason ?? '').toLowerCase().includes(q) ||
+      slotTime(a.slot_id).toLowerCase().includes(q) ||
+      a.status.toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  }) : appointments;
+  const paginated = (isPatient || isDoctor)
+    ? clientFiltered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+    : appointments; // admin: server already gave us the right page
+  const paginationCount = (isPatient || isDoctor) ? clientFiltered.length : total;
 
   // ── Cancel helpers ─────────────────────────────────────────────────────────
   function openCancelDialog(appt: AppointmentResponse): void {
@@ -170,11 +204,23 @@ export default function Page(): React.JSX.Element {
     setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', slot_id: '', reason_for_visit: '' });
     setAvailableSlots([]);
     setDoctorSearch('');
+    setPatientSearch('');
+    setSelectedPatient(null);
     setBookError(null);
     setBookOpen(true);
-    Promise.all([getDoctors(), getClinics()]).then(([d, c]) => {
-      setDoctors(d);
-      setClinics(c);
+    const fetches: Promise<unknown>[] = [getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 })];
+    if (!isPatient) {
+      setPatientsLoading(true);
+      fetches.push(
+        getPatients(0, 100)
+          .then((result) => { setPatients(result.items); })
+          .catch(() => { /* non-fatal */ })
+          .finally(() => { setPatientsLoading(false); })
+      );
+    }
+    Promise.all(fetches.slice(0, 2)).then(([d, c]) => {
+      setDoctors((d as PaginatedResponse<DoctorResponse>).items);
+      setClinics((c as PaginatedResponse<ClinicResponse>).items);
     }).catch(() => { /* non-fatal */ });
   }
 
@@ -238,11 +284,25 @@ export default function Page(): React.JSX.Element {
         <Stack spacing={1} sx={{ flex: '1 1 auto' }}>
           <Typography variant="h4">{pageTitle}</Typography>
           <Typography color="text.secondary" variant="body2">
-            {loading ? 'Loading...' : `${filtered.length} appointment${filtered.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading...' : `${paginationCount} appointment${paginationCount !== 1 ? 's' : ''}`}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 160 }}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField
+            size="small"
+            placeholder="Search patient, doctor, clinic…"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+            sx={{ minWidth: 240 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <MagnifyingGlassIcon fontSize="var(--icon-fontSize-md)" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel>Status</InputLabel>
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
@@ -277,8 +337,7 @@ export default function Page(): React.JSX.Element {
           <Table sx={{ minWidth: '900px' }}>
             <TableHead>
               <TableRow>
-                {isAdmin ? <TableCell>#ID</TableCell> : null}
-                {isAdmin ? <TableCell>Patient ID</TableCell> : null}
+                {isAdmin ? <TableCell>Patient</TableCell> : null}
                 <TableCell>{isDoctor ? 'Patient' : 'Doctor'}</TableCell>
                 {!isDoctor ? <TableCell>Clinic</TableCell> : null}
                 <TableCell>Slot Time</TableCell>
@@ -313,8 +372,13 @@ export default function Page(): React.JSX.Element {
                   const cfg = statusConfig[appt.status] ?? { label: appt.status, color: 'default' as const };
                   return (
                     <TableRow key={appt.id} hover>
-                      {isAdmin ? <TableCell><Typography variant="subtitle2">#{appt.id}</Typography></TableCell> : null}
-                      {isAdmin ? <TableCell>Patient #{appt.patient_id}</TableCell> : null}
+                      {isAdmin ? (
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {appt.patient_name ?? `Patient #${appt.patient_id}`}
+                          </Typography>
+                        </TableCell>
+                      ) : null}
                       <TableCell>
                         <Typography variant="body2">
                           {isDoctor
@@ -365,7 +429,7 @@ export default function Page(): React.JSX.Element {
         <Divider />
         <TablePagination
           component="div"
-          count={filtered.length}
+          count={paginationCount}
           onPageChange={(_, p) => { setPage(p); }}
           page={page}
           rowsPerPage={rowsPerPage}
@@ -417,16 +481,123 @@ export default function Page(): React.JSX.Element {
             {bookError ? <Typography color="error" variant="body2">{bookError}</Typography> : null}
 
             {!isPatient ? (
-              <TextField
-                label="Patient ID"
-                required
-                fullWidth
-                type="number"
-                value={bookForm.patient_id}
-                onChange={(e) => { setBookForm((f) => ({ ...f, patient_id: e.target.value })); }}
-                disabled={booking}
-                helperText="Enter the patient's numeric ID"
-              />
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Patient *</Typography>
+                <TextField
+                  label="Search by name, email or phone"
+                  fullWidth
+                  value={patientSearch}
+                  onChange={(e) => { setPatientSearch(e.target.value); setSelectedPatient(null); setBookForm((f) => ({ ...f, patient_id: '' })); }}
+                  disabled={booking}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        {patientsLoading ? <CircularProgress size={16} /> : <MagnifyingGlassIcon fontSize="var(--icon-fontSize-md)" />}
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText={selectedPatient ? undefined : 'Type to search then click a patient to select'}
+                />
+
+                {/* search results */}
+                {!selectedPatient && patientSearch.trim().length > 0 ? (() => {
+                  const q = patientSearch.trim().toLowerCase();
+                  const matched = patients.filter((p) =>
+                    (p.patient_name ?? '').toLowerCase().includes(q) ||
+                    (p.email ?? '').toLowerCase().includes(q) ||
+                    (p.mobile_no ?? '').toLowerCase().includes(q)
+                  );
+                  if (patientsLoading) return null;
+                  if (matched.length === 0) {
+                    return (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        No patients match "{patientSearch}".
+                      </Typography>
+                    );
+                  }
+                  return (
+                    <Box
+                      sx={{
+                        mt: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1,
+                        maxHeight: 220, overflowY: 'auto',
+                      }}
+                    >
+                      {matched.slice(0, 20).map((p) => (
+                        <Box
+                          key={p.id}
+                          onClick={() => {
+                            setSelectedPatient(p);
+                            setBookForm((f) => ({ ...f, patient_id: String(p.id) }));
+                            setPatientSearch(p.patient_name ?? String(p.id));
+                          }}
+                          sx={{
+                            display: 'flex', alignItems: 'center', gap: 1.5,
+                            px: 1.5, py: 1, cursor: 'pointer',
+                            '&:hover': { bgcolor: 'action.hover' },
+                            borderBottom: '1px solid', borderColor: 'divider',
+                            '&:last-child': { borderBottom: 'none' },
+                          }}
+                        >
+                          <Avatar sx={{ width: 32, height: 32, fontSize: '0.75rem', bgcolor: 'primary.main' }}>
+                            {(p.patient_name ?? '#')[0].toUpperCase()}
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={600} noWrap>
+                              {p.patient_name ?? `Patient #${p.id}`}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>
+                              {[p.email, p.mobile_no].filter(Boolean).join(' · ')}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">ID #{p.id}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  );
+                })() : null}
+
+                {/* selected patient details card */}
+                {selectedPatient ? (
+                  <Box
+                    sx={{
+                      mt: 1, p: 1.5, border: '2px solid', borderColor: 'primary.main',
+                      borderRadius: 1, bgcolor: 'primary.50',
+                      display: 'flex', alignItems: 'flex-start', gap: 1.5,
+                    }}
+                  >
+                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'primary.main' }}>
+                      {(selectedPatient.patient_name ?? '#')[0].toUpperCase()}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>
+                        {selectedPatient.patient_name ?? `Patient #${selectedPatient.id}`}
+                      </Typography>
+                      {selectedPatient.email ? (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {selectedPatient.email}
+                        </Typography>
+                      ) : null}
+                      {selectedPatient.mobile_no ? (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {selectedPatient.mobile_no}
+                        </Typography>
+                      ) : null}
+                      <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: 'wrap' }}>
+                        {selectedPatient.blood_group ? (
+                          <Chip label={`Blood: ${selectedPatient.blood_group}`} size="small" color="error" variant="outlined" />
+                        ) : null}
+                        {selectedPatient.date_of_birth ? (
+                          <Chip label={`DOB: ${dayjs(selectedPatient.date_of_birth).format('MMM D, YYYY')}`} size="small" variant="outlined" />
+                        ) : null}
+                        <Chip label={`ID #${selectedPatient.id}`} size="small" color="primary" />
+                      </Stack>
+                    </Box>
+                    <Button size="small" onClick={() => { setSelectedPatient(null); setBookForm((f) => ({ ...f, patient_id: '' })); setPatientSearch(''); }}>
+                      Change
+                    </Button>
+                  </Box>
+                ) : null}
+              </Box>
             ) : null}
 
             {/* ── Doctor search ───────────────────────────────────────────── */}
