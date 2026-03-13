@@ -1,90 +1,200 @@
-## [Devias Kit - React](https://material-kit-react.devias.io/)
+# Health Services — Frontend
 
-![license](https://img.shields.io/badge/license-MIT-blue.svg)
+A full-featured web portal for the XYZ Health Services platform, built with Next.js 15, React 19, TypeScript, and Material UI 7. The UI consumes the Health Services REST API and supports three roles: Patient, Doctor, and Admin.
 
-[![Devias Kit - React](https://github.com/devias-io/material-kit-react/blob/main/public/assets/thumbnail.png)](https://material-kit-react.devias.io/)
+## Overview
 
-> Free React Admin Dashboard made with [MUI's](https://mui.com) components, [React](https://reactjs.org) and of course [Next.js](https://github.com/vercel/next.js) to boost your app development process!
+- **Patient Portal** — appointment booking, history, profile management
+- **Doctor Portal** — schedule management, availability slots, patient appointments
+- **Admin Portal** — clinic & doctor management, slot administration, user oversight
+- **Authentication** — JWT-based login / sign-up / password reset
 
-## Pages 
+## Tech Stack
 
-- [Dashboard](https://material-kit-react.devias.io)
-- [Customers](https://material-kit-react.devias.io/dashboard/customers)
-- [Integrations](https://material-kit-react.devias.io/dashboard/integrations)
-- [Settings](https://material-kit-react.devias.io/dashboard/settings)
-- [Account](https://material-kit-react.devias.io/dashboard/account)
-- [Sign In](https://material-kit-react.devias.io/auth/sign-in)
-- [Sign Up](https://material-kit-react.devias.io/auth/sign-up)
-- [Reset Password](https://material-kit-react.devias.io/auth/reset-password)
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| UI Library | React 19 |
+| Component Library | MUI v7 (Material UI) |
+| Language | TypeScript |
+| Forms | React Hook Form + Zod |
+| Date handling | Day.js + MUI X Date Pickers |
+| Charts | ApexCharts + react-apexcharts |
+| Icons | Phosphor Icons |
+| HTTP Client | Axios (via centralised `apiClient`) |
+| Package manager | pnpm |
+| Containerisation | Docker (multi-stage build) |
 
-## Free Figma Community File
+## Quick Start
 
-- [Duplicate File](https://www.figma.com/file/b3L1Np4RYiicZAOMopHNkm/Devias-Dashboard-Design-Library-Kit)
+### Prerequisites
 
-## Upgrade to PRO Version
+- Node.js 20+
+- pnpm 9+
+- Health Services backend running at `http://localhost:8000`
 
-We also have a pro version of this product which bundles even more pages and components if you want
-to save more time and design efforts :)
+### Installation
 
-| Free Version (this one)  | [Devias Kit Pro](https://mui.com/store/items/devias-kit-pro/)                |
-| ------------------------ | :--------------------------------------------------------------------------- |
-| **8** Pages              | **80+** Pages                                                                |
-| ✔ Custom Authentication  | ✔ Authentication with **Amplify**, **Auth0**, **Firebase** and **Supabase**  |
-| -                        | ✔ Vite Version                                                               |
-| -                        | ✔ Dark Mode Support                                                          |
-| -                        | ✔ Complete Users Flows                                                       |
-| -                        | ✔ Premium Technical Support                                                  |
-
-## Quick start
-
-- Clone the repo: `git clone https://github.com/devias-io/material-kit-react.git`
-- Make sure your Node.js and npm versions are up to date
-- Install dependencies: `npm install` or `yarn`
-- Start the server: `npm run dev` or `yarn dev`
-- Open browser: `http://localhost:3000`
-
-## File Structure
-
-Within the download you'll find the following directories and files:
-
-```
-┌── .editorconfig
-├── .eslintrc.js
-├── .gitignore
-├── CHANGELOG.md
-├── LICENSE.md
-├── next-env.d.ts
-├── next.config.js
-├── package.json
-├── README.md
-├── tsconfig.json
-├── public
-└── src
-	├── components
-	├── contexts
-	├── hooks
-	├── lib
-	├── styles
-	├── types
-	└── app
-		├── layout.tsx
-		├── page.tsx
-		├── auth
-		└── dashboard
+1. **Clone the repository**
+```bash
+git clone https://github.com/amanjogiris/health.git
+cd health/health_frontend
 ```
 
-## Resources
+2. **Install dependencies**
+```bash
+pnpm install
+```
 
-- More freebies like this one: https://devias.io
+3. **Configure environment**
 
-## Reporting Issues:
+Create a `.env.local` file:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
-- [Github Issues Page](https://github.com/devias-io/material-kit-react/issues)
+4. **Start the development server**
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Docker
+
+The backend's `docker-compose.yml` includes the frontend service. From `health_backend/`:
+
+```bash
+docker compose up --build
+```
+
+| Service  | URL                     |
+|----------|-------------------------|
+| Frontend | http://localhost:3000   |
+| Backend  | http://localhost:8000   |
+
+## Available Scripts
+
+| Command | Description |
+|---|---|
+| `pnpm dev` | Start development server (hot reload) |
+| `pnpm build` | Production build |
+| `pnpm start` | Start production server |
+| `pnpm lint` | Run ESLint |
+| `pnpm lint:fix` | Auto-fix lint issues |
+| `pnpm typecheck` | TypeScript type checking |
+| `pnpm format:write` | Format all files with Prettier |
+
+## Application Structure
+
+### Pages
+
+```
+src/app/
+├── auth/
+│   ├── sign-in/          Login page
+│   ├── sign-up/          Registration page
+│   └── reset-password/   Password reset
+└── dashboard/
+    ├── page.tsx          Dashboard home / analytics
+    ├── account/          User account settings
+    ├── admins/           Admin user management
+    ├── appointments/     Appointment list & management
+    ├── clinics/          Clinic directory & management
+    ├── customers/        Customer (patient) management
+    ├── doctors/          Doctor directory & management
+    ├── integrations/     Third-party integrations
+    ├── patients/         Patient profiles
+    └── settings/         Application settings
+```
+
+### Services (API Layer)
+
+```
+src/services/
+├── apiClient.ts          Axios instance with JWT auth headers
+├── authService.ts        Login, register, logout, profile
+├── appointmentService.ts Booking, cancellation, listing
+└── doctorService.ts      Doctor search, profile, availability
+```
+
+### Source Layout
+
+```
+health_frontend/
+├── src/
+│   ├── app/              Next.js App Router pages & layouts
+│   ├── components/       Reusable UI components
+│   ├── contexts/         React context providers (auth, etc.)
+│   ├── hooks/            Custom React hooks
+│   ├── lib/              Shared utilities and helpers
+│   ├── services/         API client & service modules
+│   ├── styles/           Global styles and theme
+│   ├── types/            TypeScript type definitions
+│   ├── config.ts         App-wide configuration constants
+│   └── paths.ts          Centralised route path definitions
+├── public/
+│   └── assets/           Static images and icons
+├── next.config.js        Next.js configuration
+├── tsconfig.json         TypeScript configuration
+├── eslint.config.mjs     ESLint configuration
+├── prettier.config.mjs   Prettier configuration
+├── Dockerfile            Multi-stage production image
+└── pnpm-lock.yaml
+```
+
+## Authentication Flow
+
+1. User submits credentials on `/auth/sign-in`
+2. `authService.login()` calls `POST /api/v1/auth/login`
+3. JWT is stored (auth context / local storage)
+4. `apiClient` attaches `Authorization: Bearer <token>` to every request
+5. On logout, `POST /api/v1/auth/logout` invalidates the token server-side
+
+## Role-Based Navigation
+
+| Role | Access |
+|---|---|
+| **Patient** | Dashboard, Appointments, Account |
+| **Doctor** | Dashboard, Schedule, Appointments, Account |
+| **Admin** | All pages including Clinics, Doctors, Patients, Admins, Settings |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend API base URL |
+| `NEXT_TELEMETRY_DISABLED` | `1` | Disable Next.js telemetry |
+
+## Key Dependencies
+
+```json
+{
+  "next": "15.3.3",
+  "react": "19.1.0",
+  "@mui/material": "7.1.1",
+  "@mui/x-date-pickers": "8.5.1",
+  "react-hook-form": "7.57.0",
+  "zod": "3.25.57",
+  "apexcharts": "4.7.0",
+  "dayjs": "1.11.13",
+  "@phosphor-icons/react": "2.1.10"
+}
+```
+
+## Additional Resources
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [MUI Documentation](https://mui.com/material-ui/)
+- [Health Services API Docs](http://localhost:8000/docs)
+- [Backend README](../health_backend/readme.md)
 
 ## License
 
-- Licensed under [MIT](https://github.com/devias-io/material-kit-react/blob/main/LICENSE.md)
+This project is part of the ASCEND training program. UI components based on [Devias Material Kit React](https://devias.io) (MIT).
 
-## Contact Us
+---
 
-- Email Us: support@deviasio.zendesk.com
+**Last Updated**: March 13, 2026  
+**App Version**: 1.0.0
+
