@@ -115,7 +115,19 @@ export interface AppointmentResponse {
   cancelled_reason?: string;
   created_at?: string;
   updated_at?: string;
+  // Enriched join fields returned by the service layer
   patient_name?: string;
+  doctor_name?: string;
+  clinic_name?: string;
+  slot_time?: string;
+}
+
+/** Envelope returned by POST /api/v1/appointments/book */
+export interface BookingResponse {
+  success: boolean;
+  message: string;
+  appointment_id?: number;
+  appointment?: AppointmentResponse;
 }
 
 export interface PatientResponse {
@@ -263,8 +275,8 @@ export async function bookAppointment(data: {
   clinic_id: number;
   slot_id: number;
   reason_for_visit?: string;
-}): Promise<AppointmentResponse> {
-  return apiFetch<AppointmentResponse>('/api/v1/appointments/book', {
+}): Promise<BookingResponse> {
+  return apiFetch<BookingResponse>('/api/v1/appointments/book', {
     method: 'POST',
     body: JSON.stringify(data),
   });

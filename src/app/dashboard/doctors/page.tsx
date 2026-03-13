@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Alert from '@mui/material/Alert';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -19,6 +20,7 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import OutlinedInput from '@mui/material/OutlinedInput';
 import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -40,6 +42,7 @@ import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
+import { useDebounce } from '@/hooks/use-debounce';
 import type { AppointmentSlotResponse, AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
 import { bookAppointment, deleteDoctor, getClinics, getDoctors, getSlots, registerDoctor, updateDoctor } from '@/lib/api';
 
@@ -96,6 +99,16 @@ export default function Page(): React.JSX.Element {
   const [rowsPerPage] = React.useState(10);
   const [total, setTotal] = React.useState(0);
 
+  // Debounce search so the API is only called after the user stops typing (400 ms)
+  const debouncedSearch = useDebounce(search, 400);
+
+  // Success / info snackbar
+  const [snackbar, setSnackbar] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+
   // Create dialog
   const [createOpen, setCreateOpen] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
@@ -124,11 +137,11 @@ export default function Page(): React.JSX.Element {
 
   const loadDoctors = React.useCallback((): void => {
     setLoading(true);
-    getDoctors({ skip: page * rowsPerPage, limit: rowsPerPage, search: search || undefined })
+    getDoctors({ skip: page * rowsPerPage, limit: rowsPerPage, search: debouncedSearch || undefined })
       .then((result) => { setDoctors(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, [page, rowsPerPage, search]);
+  }, [page, rowsPerPage, debouncedSearch]);
 
   React.useEffect(() => { loadDoctors(); }, [loadDoctors]);
 
@@ -289,14 +302,19 @@ export default function Page(): React.JSX.Element {
     setBookingInProgress(true);
     setBookError(null);
     try {
-      await bookAppointment({
+      const result = await bookAppointment({
         patient_id: Number(user.id),
         doctor_id: bookTarget.id,
         clinic_id: bookTarget.clinic_id,
         slot_id: Number(bookSlotId),
         reason_for_visit: bookReason || undefined,
       });
-      setBookTarget(null);
+      if (result.success) {
+        setBookTarget(null);
+        setSnackbar({ open: true, message: result.message, severity: 'success' });
+      } else {
+        setBookError(result.message);
+      }
     } catch (err: unknown) {
       setBookError(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
@@ -676,7 +694,6 @@ export default function Page(): React.JSX.Element {
 
       {/* ── Book Appointment Dialog (patient) ─────────────────────────────── */}
       <Dialog
-        open={Boolean(bookTarget)}
         onClose={() => { if (!bookingInProgress) setBookTarget(null); }}
         maxWidth="md"
         fullWidth
@@ -795,6 +812,23 @@ export default function Page(): React.JSX.Element {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Success / Error Snackbar ───────────────────────────────────────── */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => { setSnackbar((s) => ({ ...s, open: false })); }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => { setSnackbar((s) => ({ ...s, open: false })); }}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }

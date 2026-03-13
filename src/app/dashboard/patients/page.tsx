@@ -37,6 +37,7 @@ import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwis
 import dayjs from 'dayjs';
 
 import { RoleGuard } from '@/components/auth/role-guard';
+import { useDebounce } from '@/hooks/use-debounce';
 import type { PatientResponse } from '@/lib/api';
 import { getPatients, adminUpdatePatient, deletePatient } from '@/lib/api';
 
@@ -65,6 +66,7 @@ function PatientsContent(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState('');
+  const debouncedSearch = useDebounce(search, 400);
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(10);
   const [total, setTotal] = React.useState(0);
@@ -82,11 +84,11 @@ function PatientsContent(): React.JSX.Element {
   const load = React.useCallback((): void => {
     setLoading(true);
     setError(null);
-    getPatients(page * rowsPerPage, rowsPerPage, search || undefined)
+    getPatients(page * rowsPerPage, rowsPerPage, debouncedSearch || undefined)
       .then((result) => { setPatients(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, [page, rowsPerPage, search]);
+  }, [page, rowsPerPage, debouncedSearch]);
 
   React.useEffect(() => { load(); }, [load]);
 

@@ -32,6 +32,7 @@ import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
 
 import type { UserRole } from '@/types/user';
+import { useDebounce } from '@/hooks/use-debounce';
 import { useUser } from '@/hooks/use-user';
 import type { ClinicResponse } from '@/lib/api';
 import { createClinic, deleteClinic, getClinics, updateClinic } from '@/lib/api';
@@ -62,6 +63,7 @@ export default function Page(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState('');
+  const debouncedSearch = useDebounce(search, 400);
   const [page, setPage] = React.useState(0);
   const [rowsPerPage] = React.useState(12);
   const [total, setTotal] = React.useState(0);
@@ -84,11 +86,11 @@ export default function Page(): React.JSX.Element {
 
   const load = React.useCallback((): void => {
     setLoading(true);
-    getClinics({ skip: page * rowsPerPage, limit: rowsPerPage, search: search || undefined })
+    getClinics({ skip: page * rowsPerPage, limit: rowsPerPage, search: debouncedSearch || undefined })
       .then((result) => { setClinics(result.items); setTotal(result.total); })
       .catch((err: Error) => { setError(err.message); })
       .finally(() => { setLoading(false); });
-  }, [page, rowsPerPage, search]);
+  }, [page, rowsPerPage, debouncedSearch]);
 
   React.useEffect(() => { load(); }, [load]);
 

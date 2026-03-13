@@ -1,11 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import Alert from '@mui/material/Alert';
+import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -17,6 +20,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -35,9 +39,7 @@ import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import Avatar from '@mui/material/Avatar';
-import CircularProgress from '@mui/material/CircularProgress';
-import type { AppointmentResponse, AppointmentSlotResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
+import type { AppointmentResponse, AppointmentSlotResponse, BookingResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
 import {
   bookAppointment,
   cancelAppointment,
@@ -54,9 +56,13 @@ const statusConfig: Record<
   string,
   { label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }
 > = {
-  pending: { label: 'Pending', color: 'default' },
-  booked: { label: 'Booked', color: 'info' },
+  pending:   { label: 'Pending',   color: 'warning' },
+  booked:    { label: 'Booked',    color: 'info' },
+  confirmed: { label: 'Confirmed', color: 'primary' },
   cancelled: { label: 'Cancelled', color: 'error' },
+  completed: { label: 'Completed', color: 'success' },
+  no_show:   { label: 'No Show',   color: 'default' },
+  rejected:  { label: 'Rejected',  color: 'error' },
 };
 
 interface BookForm {
@@ -106,6 +112,13 @@ export default function Page(): React.JSX.Element {
   const [patientsLoading, setPatientsLoading] = React.useState(false);
   const [selectedPatient, setSelectedPatient] = React.useState<PatientResponse | null>(null);
 
+  // Success / error snackbar
+  const [snackbar, setSnackbar] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+
   const load = React.useCallback((): void => {
     if (!user) return;
     setLoading(true);
@@ -137,18 +150,21 @@ export default function Page(): React.JSX.Element {
 
   React.useEffect(() => { load(); }, [load]);
 
-  // Lookup helpers
-  const doctorName = (id: number): string => {
-    const d = doctors.find((x) => x.id === id);
-    return d?.doctor_name ?? `Doctor #${id}`;
+  // Lookup helpers — prefer enriched fields returned by the backend, fall back to local arrays
+  const doctorName = (appt: AppointmentResponse): string => {
+    if (appt.doctor_name) return appt.doctor_name;
+    const d = doctors.find((x) => x.id === appt.doctor_id);
+    return d?.doctor_name ?? `Doctor #${appt.doctor_id}`;
   };
-  const clinicName = (id: number): string => {
-    const c = clinics.find((x) => x.id === id);
-    return c?.name ?? `Clinic #${id}`;
+  const clinicName = (appt: AppointmentResponse): string => {
+    if (appt.clinic_name) return appt.clinic_name;
+    const c = clinics.find((x) => x.id === appt.clinic_id);
+    return c?.name ?? `Clinic #${appt.clinic_id}`;
   };
-  const slotTime = (id: number): string => {
-    const s = allSlots.find((x) => x.id === id);
-    if (!s) return `Slot #${id}`;
+  const slotTime = (appt: AppointmentResponse): string => {
+    if (appt.slot_time) return dayjs(appt.slot_time).format('MMM D, HH:mm');
+    const s = allSlots.find((x) => x.id === appt.slot_id);
+    if (!s) return `Slot #${appt.slot_id}`;
     return dayjs(s.start_time).format('MMM D, HH:mm');
   };
 
@@ -160,12 +176,12 @@ export default function Page(): React.JSX.Element {
     if (!q) return matchesStatus;
     const matchesSearch =
       (a.patient_name ?? `Patient #${a.patient_id}`).toLowerCase().includes(q) ||
-      doctorName(a.doctor_id).toLowerCase().includes(q) ||
-      clinicName(a.clinic_id).toLowerCase().includes(q) ||
+      doctorName(a).toLowerCase().includes(q) ||
+      clinicName(a).toLowerCase().includes(q) ||
       (a.reason_for_visit ?? '').toLowerCase().includes(q) ||
       (a.notes ?? '').toLowerCase().includes(q) ||
       (a.cancelled_reason ?? '').toLowerCase().includes(q) ||
-      slotTime(a.slot_id).toLowerCase().includes(q) ||
+      slotTime(a).toLowerCase().includes(q) ||
       a.status.toLowerCase().includes(q);
     return matchesStatus && matchesSearch;
   }) : appointments;
@@ -254,15 +270,20 @@ export default function Page(): React.JSX.Element {
     setBooking(true);
     setBookError(null);
     try {
-      await bookAppointment({
+      const result: BookingResponse = await bookAppointment({
         patient_id: Number(patient_id),
         doctor_id: Number(doctor_id),
         clinic_id: doctor.clinic_id,
         slot_id: Number(slot_id),
         reason_for_visit: bookForm.reason_for_visit || undefined,
       });
-      setBookOpen(false);
-      load();
+      if (result.success) {
+        setBookOpen(false);
+        load();
+        setSnackbar({ open: true, message: result.message, severity: 'success' });
+      } else {
+        setBookError(result.message);
+      }
     } catch (err: unknown) {
       setBookError(err instanceof Error ? err.message : 'Failed to book appointment.');
     } finally {
@@ -306,8 +327,13 @@ export default function Page(): React.JSX.Element {
             <InputLabel>Status</InputLabel>
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
+              <MenuItem value="pending">Pending</MenuItem>
               <MenuItem value="booked">Booked</MenuItem>
+              <MenuItem value="confirmed">Confirmed</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
+              <MenuItem value="completed">Completed</MenuItem>
+              <MenuItem value="no_show">No Show</MenuItem>
+              <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -383,16 +409,16 @@ export default function Page(): React.JSX.Element {
                         <Typography variant="body2">
                           {isDoctor
                             ? (appt.patient_name ?? `Patient #${appt.patient_id}`)
-                            : doctorName(appt.doctor_id)}
+                            : doctorName(appt)}
                         </Typography>
                       </TableCell>
                       {!isDoctor ? (
                         <TableCell>
-                          <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>{clinicName(appt.clinic_id)}</Typography>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: '140px' }}>{clinicName(appt)}</Typography>
                         </TableCell>
                       ) : null}
                       <TableCell>
-                        <Typography variant="body2" noWrap>{slotTime(appt.slot_id)}</Typography>
+                        <Typography variant="body2" noWrap>{slotTime(appt)}</Typography>
                       </TableCell>
                       <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
                       <TableCell>
@@ -750,6 +776,23 @@ export default function Page(): React.JSX.Element {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Success / Error Snackbar ───────────────────────────────────────── */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => { setSnackbar((s) => ({ ...s, open: false })); }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => { setSnackbar((s) => ({ ...s, open: false })); }}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }
