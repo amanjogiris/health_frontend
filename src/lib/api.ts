@@ -258,6 +258,13 @@ export async function cancelAppointment(appointmentId: number, reason: string): 
   });
 }
 
+export async function updateAppointmentNotes(appointmentId: number, notes: string): Promise<AppointmentResponse> {
+  return apiFetch<AppointmentResponse>(`/api/v1/appointments/${appointmentId}/notes`, {
+    method: 'PATCH',
+    body: JSON.stringify({ notes }),
+  });
+}
+
 export async function updateAppointmentStatus(
   appointmentId: number,
   status: 'confirmed' | 'completed' | 'no_show' | 'rejected',

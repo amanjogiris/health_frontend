@@ -34,6 +34,7 @@ import Typography from '@mui/material/Typography';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
 import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
+import { NotePencilIcon } from '@phosphor-icons/react/dist/ssr/NotePencil';
 import { XCircleIcon } from '@phosphor-icons/react/dist/ssr/XCircle';
 import dayjs from 'dayjs';
 
@@ -44,6 +45,7 @@ import {
   bookAppointment,
   cancelAppointment,
   getAppointments,
+  updateAppointmentNotes,
   getClinics,
   getDoctorAppointments,
   getDoctors,
@@ -93,6 +95,12 @@ export default function Page(): React.JSX.Element {
   const [cancelReason, setCancelReason] = React.useState('');
   const [cancelling, setCancelling] = React.useState(false);
   const [cancelError, setCancelError] = React.useState<string | null>(null);
+
+  // Edit notes (prescription) dialog — doctors only
+  const [notesTarget, setNotesTarget] = React.useState<AppointmentResponse | null>(null);
+  const [notesText, setNotesText] = React.useState('');
+  const [savingNotes, setSavingNotes] = React.useState(false);
+  const [notesError, setNotesError] = React.useState<string | null>(null);
 
   // Book dialog
   const [bookOpen, setBookOpen] = React.useState(false);
@@ -215,6 +223,29 @@ export default function Page(): React.JSX.Element {
   const canCancel = (appt: AppointmentResponse): boolean =>
     appt.status !== 'cancelled' && (isAdmin || isDoctor || isPatient);
 
+  // ── Notes / Prescription helpers (doctor / admin) ──────────────────────────
+  function openNotesDialog(appt: AppointmentResponse): void {
+    setNotesTarget(appt);
+    setNotesText(appt.notes ?? '');
+    setNotesError(null);
+  }
+
+  async function handleSaveNotes(): Promise<void> {
+    if (!notesTarget) return;
+    setSavingNotes(true);
+    setNotesError(null);
+    try {
+      await updateAppointmentNotes(notesTarget.id, notesText);
+      setNotesTarget(null);
+      load();
+      setSnackbar({ open: true, message: 'Prescription / notes saved.', severity: 'success' });
+    } catch (err: unknown) {
+      setNotesError(err instanceof Error ? err.message : 'Failed to save notes.');
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
   // ── Book helpers (admin) ────────────────────────────────────────────────────
   function openBookDialog(): void {
     setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', slot_id: '', reason_for_visit: '' });
@@ -327,13 +358,8 @@ export default function Page(): React.JSX.Element {
             <InputLabel>Status</InputLabel>
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
-              <MenuItem value="pending">Pending</MenuItem>
               <MenuItem value="booked">Booked</MenuItem>
-              <MenuItem value="confirmed">Confirmed</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
-              <MenuItem value="no_show">No Show</MenuItem>
-              <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -436,6 +462,13 @@ export default function Page(): React.JSX.Element {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          {(isDoctor || isAdmin) ? (
+                            <Tooltip title="Edit prescription / notes">
+                              <IconButton color="primary" size="small" onClick={() => { openNotesDialog(appt); }}>
+                                <NotePencilIcon fontSize="var(--icon-fontSize-md)" />
+                              </IconButton>
+                            </Tooltip>
+                          ) : null}
                           {canCancel(appt) ? (
                             <Tooltip title="Cancel appointment">
                               <IconButton color="error" size="small" onClick={() => { openCancelDialog(appt); }}>
@@ -490,6 +523,42 @@ export default function Page(): React.JSX.Element {
           <Button onClick={() => { setCancelTarget(null); }} disabled={cancelling}>Keep Appointment</Button>
           <Button onClick={() => { void handleCancel(); }} color="error" variant="contained" disabled={cancelling}>
             {cancelling ? 'Cancelling…' : 'Cancel Appointment'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Edit Prescription / Notes Dialog (doctor / admin) ──────────────── */}
+      <Dialog
+        open={Boolean(notesTarget)}
+        onClose={() => { if (!savingNotes) setNotesTarget(null); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Prescription / Notes — Appointment #{notesTarget?.id}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {notesTarget ? (
+              <Typography variant="body2" color="text.secondary">
+                Patient: <strong>{notesTarget.patient_name ?? `Patient #${notesTarget.patient_id}`}</strong>
+              </Typography>
+            ) : null}
+            {notesError ? <Typography color="error" variant="body2">{notesError}</Typography> : null}
+            <TextField
+              label="Prescription / Notes"
+              multiline
+              rows={6}
+              fullWidth
+              placeholder="Enter prescription details, medication, follow-up instructions…"
+              value={notesText}
+              onChange={(e) => { setNotesText(e.target.value); }}
+              disabled={savingNotes}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setNotesTarget(null); }} disabled={savingNotes}>Cancel</Button>
+          <Button onClick={() => { void handleSaveNotes(); }} variant="contained" disabled={savingNotes}>
+            {savingNotes ? 'Saving…' : 'Save Prescription'}
           </Button>
         </DialogActions>
       </Dialog>
