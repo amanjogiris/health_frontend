@@ -694,6 +694,7 @@ export default function Page(): React.JSX.Element {
 
       {/* ── Book Appointment Dialog (patient) ─────────────────────────────── */}
       <Dialog
+        open={Boolean(bookTarget)}
         onClose={() => { if (!bookingInProgress) setBookTarget(null); }}
         maxWidth="md"
         fullWidth
