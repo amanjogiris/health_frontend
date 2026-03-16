@@ -265,6 +265,13 @@ export async function updateAppointmentNotes(appointmentId: number, notes: strin
   });
 }
 
+export async function generateDoctorSlots(doctorId: number, daysAhead: number): Promise<{ generated: number; days_ahead: number }> {
+  return apiFetch<{ generated: number; days_ahead: number }>(
+    `/api/v1/doctors/${doctorId}/slots/generate?days_ahead=${daysAhead}`,
+    { method: 'POST' },
+  );
+}
+
 export async function updateAppointmentStatus(
   appointmentId: number,
   status: 'confirmed' | 'completed' | 'no_show' | 'rejected',

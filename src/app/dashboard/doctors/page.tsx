@@ -34,6 +34,7 @@ import Typography from '@mui/material/Typography';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
 import { MinusCircleIcon } from '@phosphor-icons/react/dist/ssr/MinusCircle';
 import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
+import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
 import { PencilSimpleIcon } from '@phosphor-icons/react/dist/ssr/PencilSimple';
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { StethoscopeIcon } from '@phosphor-icons/react/dist/ssr/Stethoscope';
@@ -44,7 +45,7 @@ import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { AppointmentSlotResponse, AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
-import { bookAppointment, deleteDoctor, getClinics, getDoctors, getSlots, registerDoctor, updateDoctor } from '@/lib/api';
+import { bookAppointment, deleteDoctor, generateDoctorSlots, getClinics, getDoctors, getSlots, registerDoctor, updateDoctor } from '@/lib/api';
 
 const DOW_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -119,6 +120,12 @@ export default function Page(): React.JSX.Element {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = React.useState<DoctorResponse | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+
+  // Generate slots dialog
+  const [genTarget, setGenTarget] = React.useState<DoctorResponse | null>(null);
+  const [genWeeks, setGenWeeks] = React.useState('8');
+  const [generating, setGenerating] = React.useState(false);
+  const [genError, setGenError] = React.useState<string | null>(null);
 
   // Edit dialog
   const [editTarget, setEditTarget] = React.useState<DoctorResponse | null>(null);
@@ -218,6 +225,23 @@ export default function Page(): React.JSX.Element {
       setCreateError(err instanceof Error ? err.message : 'Failed to create doctor.');
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleGenerateSlots(): Promise<void> {
+    if (!genTarget) return;
+    const weeks = parseInt(genWeeks, 10);
+    if (!weeks || weeks < 1 || weeks > 52) { setGenError('Enter a number between 1 and 52.'); return; }
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const result = await generateDoctorSlots(genTarget.id, weeks * 7);
+      setGenTarget(null);
+      setSnackbar({ open: true, message: `Generated ${result.generated} new slot${result.generated !== 1 ? 's' : ''} for the next ${weeks} week${weeks !== 1 ? 's' : ''}.`, severity: 'success' });
+    } catch (err: unknown) {
+      setGenError(err instanceof Error ? err.message : 'Failed to generate slots.');
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -442,6 +466,11 @@ export default function Page(): React.JSX.Element {
                             <PencilSimpleIcon fontSize="var(--icon-fontSize-md)" />
                           </IconButton>
                         </Tooltip>
+                        <Tooltip title="Generate slots for future weeks">
+                          <IconButton color="success" size="small" onClick={() => { setGenTarget(doctor); setGenWeeks('8'); setGenError(null); }}>
+                            <ArrowClockwiseIcon fontSize="var(--icon-fontSize-md)" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Delete doctor">
                           <IconButton color="error" size="small" onClick={() => { setDeleteTarget(doctor); }}>
                             <TrashIcon fontSize="var(--icon-fontSize-md)" />
@@ -556,7 +585,7 @@ export default function Page(): React.JSX.Element {
             {/* Availability */}
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', pt: 1 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                Weekly Availability (generates 30-day slots automatically)
+                Weekly Availability (generates 60-day slots automatically)
               </Typography>
               <Button
                 size="small"
@@ -670,6 +699,40 @@ export default function Page(): React.JSX.Element {
         </DialogActions>
       </Dialog>
 
+      {/* ── Generate Slots Dialog ─────────────────────────────────────────── */}
+      <Dialog
+        open={Boolean(genTarget)}
+        onClose={() => { if (!generating) setGenTarget(null); }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Generate Slots — {genTarget?.doctor_name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {genError ? <Typography color="error" variant="body2">{genError}</Typography> : null}
+            <Typography variant="body2" color="text.secondary">
+              Slots are generated from the doctor’s weekly availability. Already-existing slots are skipped (safe to re-run).
+            </Typography>
+            <TextField
+              label="Number of weeks ahead"
+              type="number"
+              fullWidth
+              value={genWeeks}
+              onChange={(e) => { setGenWeeks(e.target.value); }}
+              disabled={generating}
+              inputProps={{ min: 1, max: 52 }}
+              helperText="1 – 52 weeks (e.g. 4 = next month, 12 = next quarter)"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setGenTarget(null); }} disabled={generating}>Cancel</Button>
+          <Button onClick={() => { void handleGenerateSlots(); }} variant="contained" color="success" disabled={generating}>
+            {generating ? 'Generating…' : 'Generate Slots'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ── Delete Confirm Dialog ─────────────────────────────────────────── */}
       <Dialog
         open={Boolean(deleteTarget)}
@@ -713,7 +776,7 @@ export default function Page(): React.JSX.Element {
             {bookSlotsLoading ? (
               <Typography variant="body2" color="text.secondary">Loading available slots…</Typography>
             ) : bookSlots.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">No available slots for this doctor in the next 7 days.</Typography>
+              <Typography variant="body2" color="text.secondary">No available slots for this doctor. Ask an admin to generate slots.</Typography>
             ) : (() => {
               // Group slots by date string (YYYY-MM-DD)
               const byDay = new Map<string, typeof bookSlots>();
