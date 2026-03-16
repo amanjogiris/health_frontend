@@ -93,11 +93,13 @@ function AppointmentTable({
   loading,
   title = 'Appointments',
   doctors = [],
+  showPatient = false,
 }: {
   appointments: AppointmentResponse[];
   loading: boolean;
   title?: string;
   doctors?: DoctorResponse[];
+  showPatient?: boolean;
 }): React.JSX.Element {
   return (
     <Card>
@@ -107,10 +109,10 @@ function AppointmentTable({
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Doctor</TableCell>
+              <TableCell>{showPatient ? 'Patient' : 'Doctor'}</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Reason</TableCell>
-              <TableCell>Date</TableCell>
+              <TableCell>Appointment Date</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -122,18 +124,21 @@ function AppointmentTable({
               appointments.slice(0, 8).map((appt) => {
                 const cfg = statusConfig[appt.status] ?? { label: appt.status, color: 'default' as const };
                 const doc = doctors.find((d) => d.id === appt.doctor_id);
-                const doctorLabel = doc?.doctor_name ?? (doc ? `Doctor #${doc.id}` : `Doctor #${appt.doctor_id}`);
+                const primaryLabel = showPatient
+                  ? (appt.patient_name ?? `Patient #${appt.patient_id}`)
+                  : (doc?.doctor_name ?? (doc ? `Doctor #${doc.id}` : `Doctor #${appt.doctor_id}`))
+                const subLabel = (!showPatient && doc) ? doc.specialty : null;
                 return (
                   <TableRow key={appt.id} hover>
                     <TableCell>
                       <Stack spacing={0}>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{doctorLabel}</Typography>
-                        {doc ? <Typography variant="caption" color="text.secondary">{doc.specialty}</Typography> : null}
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{primaryLabel}</Typography>
+                        {subLabel ? <Typography variant="caption" color="text.secondary">{subLabel}</Typography> : null}
                       </Stack>
                     </TableCell>
                     <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
                     <TableCell>{appt.reason_for_visit ?? '—'}</TableCell>
-                    <TableCell>{appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY') : '—'}</TableCell>
+                    <TableCell>{appt.slot_time ? dayjs(appt.slot_time).format('MMM D, YYYY HH:mm') : appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY') : '—'}</TableCell>
                   </TableRow>
                 );
               })
@@ -217,7 +222,13 @@ function DoctorDashboard(): React.JSX.Element {
   }, []);
 
   const todaysDate = dayjs().format('YYYY-MM-DD');
-  const todaysAppts = appointments.filter((a) => a.created_at && dayjs(a.created_at).format('YYYY-MM-DD') === todaysDate).length;
+  const todaysAppts = appointments.filter((a) =>
+    a.slot_time
+      ? dayjs(a.slot_time).format('YYYY-MM-DD') === todaysDate
+      : a.created_at
+        ? dayjs(a.created_at).format('YYYY-MM-DD') === todaysDate
+        : false
+  ).length;
 
   return (
     <Grid container spacing={3}>
@@ -237,8 +248,8 @@ function DoctorDashboard(): React.JSX.Element {
           icon={<ClockIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-success-main)" />
       </Grid>
       <Grid size={{ lg: 4, sm: 6, xs: 12 }}>
-        <StatCard title="Pending" value={loading ? '…' : appointments.filter((a) => a.status === 'pending').length}
-          icon={<CalendarBlankIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-warning-main)" />
+        <StatCard title="Cancelled" value={loading ? '…' : appointments.filter((a) => a.status === 'cancelled').length}
+          icon={<XCircleIcon fontSize="var(--icon-fontSize-lg)" />} color="var(--mui-palette-error-main)" />
       </Grid>
       {doctor ? (
         <Grid size={{ xs: 12, md: 6 }}>
@@ -258,7 +269,7 @@ function DoctorDashboard(): React.JSX.Element {
         </Grid>
       ) : null}
       <Grid size={{ xs: 12 }}>
-        <AppointmentTable appointments={appointments} loading={loading} title="My Assigned Appointments" />
+        <AppointmentTable appointments={appointments} loading={loading} title="My Assigned Appointments" showPatient />
       </Grid>
     </Grid>
   );
