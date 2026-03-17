@@ -3,17 +3,29 @@
  */
 import { apiFetch } from './apiClient';
 
+export type SlotStatus = 'available' | 'booked' | 'cancelled' | 'blocked';
+
 export interface SlotResponse {
   id: number;
   doctor_id: number;
   clinic_id: number;
+  /** Calendar date YYYY-MM-DD (denormalised) */
+  date?: string;
   start_time: string;
   end_time: string;
+  /** Lifecycle status of the slot */
+  status: SlotStatus;
   is_booked: boolean;
   capacity: number;
   booked_count: number;
   is_active: boolean;
   created_at?: string;
+}
+
+export interface SlotToggleResponse {
+  id: number;
+  is_active: boolean;
+  message: string;
 }
 
 export interface AppointmentResponse {
@@ -45,12 +57,16 @@ export async function getSlots(params?: {
   clinic_id?: number;
   date_from?: string;
   date_to?: string;
+  status?: SlotStatus;
+  include_all?: boolean;
 }): Promise<SlotResponse[]> {
   const qs = new URLSearchParams();
   if (params?.doctor_id) qs.set('doctor_id', String(params.doctor_id));
   if (params?.clinic_id) qs.set('clinic_id', String(params.clinic_id));
   if (params?.date_from) qs.set('date_from', params.date_from);
   if (params?.date_to) qs.set('date_to', params.date_to);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.include_all) qs.set('include_all', 'true');
   return apiFetch<SlotResponse[]>(`/api/v1/slots?${qs}`);
 }
 
@@ -60,11 +76,28 @@ export async function createSlot(data: {
   start_time: string;
   end_time: string;
   capacity?: number;
+  status?: SlotStatus;
 }): Promise<SlotResponse> {
   return apiFetch<SlotResponse>('/api/v1/slots', {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+export async function updateSlot(
+  slotId: number,
+  data: { start_time?: string; end_time?: string; capacity?: number; status?: SlotStatus },
+  force = false,
+): Promise<SlotResponse> {
+  const url = force ? `/api/v1/slots/${slotId}?force=true` : `/api/v1/slots/${slotId}`;
+  return apiFetch<SlotResponse>(url, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function toggleSlotActive(slotId: number): Promise<SlotToggleResponse> {
+  return apiFetch<SlotToggleResponse>(`/api/v1/slots/${slotId}/toggle-active`, { method: 'PATCH' });
 }
 
 export async function deleteSlot(slotId: number): Promise<void> {

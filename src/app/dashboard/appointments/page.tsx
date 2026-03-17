@@ -277,7 +277,7 @@ export default function Page(): React.JSX.Element {
     if (!doctorId) return;
     setSlotsLoading(true);
     getSlots({ doctor_id: Number(doctorId) })
-      .then((data) => { setAvailableSlots(data.filter((s) => !s.is_booked && s.is_active)); })
+      .then((data) => { setAvailableSlots(data.filter((s) => !s.is_booked && s.is_active && s.status === 'available')); })
       .catch(() => { /* non-fatal */ })
       .finally(() => { setSlotsLoading(false); });
   }

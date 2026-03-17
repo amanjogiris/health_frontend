@@ -87,19 +87,30 @@ export interface ClinicResponse {
   updated_at?: string;
 }
 
+export type SlotStatus = 'available' | 'booked' | 'cancelled' | 'blocked';
+
 export interface AppointmentSlotResponse {
   id: number;
   doctor_id: number;
   clinic_id: number;
+  /** Calendar date string YYYY-MM-DD (denormalised) */
+  date?: string;
   /** ISO-8601 datetime string */
   start_time: string;
   /** ISO-8601 datetime string */
   end_time: string;
+  status: SlotStatus;
   is_booked: boolean;
   capacity: number;
   booked_count: number;
   is_active: boolean;
   created_at?: string;
+}
+
+export interface SlotToggleResponse {
+  id: number;
+  is_active: boolean;
+  message: string;
 }
 
 export interface AppointmentResponse {
@@ -181,6 +192,8 @@ export async function getSlots(params?: {
   clinic_id?: number;
   date_from?: string;
   date_to?: string;
+  status?: SlotStatus;
+  skip?: number;
   limit?: number;
   include_all?: boolean;
 }): Promise<AppointmentSlotResponse[]> {
@@ -189,9 +202,61 @@ export async function getSlots(params?: {
   if (params?.clinic_id) qs.set('clinic_id', String(params.clinic_id));
   if (params?.date_from) qs.set('date_from', params.date_from);
   if (params?.date_to) qs.set('date_to', params.date_to);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.skip !== undefined) qs.set('skip', String(params.skip));
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.include_all) qs.set('include_all', 'true');
   return apiFetch<AppointmentSlotResponse[]>(`/api/v1/slots?${qs}`);
+}
+
+export async function createSlot(data: {
+  doctor_id: number;
+  clinic_id: number;
+  start_time: string;
+  end_time: string;
+  capacity?: number;
+  status?: SlotStatus;
+}): Promise<AppointmentSlotResponse> {
+  return apiFetch<AppointmentSlotResponse>('/api/v1/slots', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateSlot(
+  slotId: number,
+  data: {
+    start_time?: string;
+    end_time?: string;
+    capacity?: number;
+    status?: SlotStatus;
+  },
+  force = false,
+): Promise<AppointmentSlotResponse> {
+  const url = force ? `/api/v1/slots/${slotId}?force=true` : `/api/v1/slots/${slotId}`;
+  return apiFetch<AppointmentSlotResponse>(url, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function toggleSlotActive(slotId: number): Promise<SlotToggleResponse> {
+  return apiFetch<SlotToggleResponse>(`/api/v1/slots/${slotId}/toggle-active`, { method: 'PATCH' });
+}
+
+export async function deleteSlot(slotId: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/slots/${slotId}`, { method: 'DELETE' });
+}
+
+export async function generateSlotsForDoctor(
+  doctorId: number,
+  params?: { days_ahead?: number; date_from?: string; date_to?: string },
+): Promise<{ generated: number; date_from?: string; date_to?: string; days_ahead?: number }> {
+  const qs = new URLSearchParams();
+  if (params?.days_ahead) qs.set('days_ahead', String(params.days_ahead));
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  return apiFetch(`/api/v1/doctors/${doctorId}/slots/generate?${qs}`, { method: 'POST' });
 }
 
 export async function getAppointments(skip = 0, limit = 10, search?: string, status?: string): Promise<PaginatedResponse<AppointmentResponse>> {
