@@ -49,7 +49,7 @@ import {
   getClinics,
   getDoctorAppointments,
   getDoctors,
-  getPatientAppointments,
+  getMyPatientAppointments,
   getPatients,
   getSlots,
 } from '@/lib/api';
@@ -132,7 +132,7 @@ export default function Page(): React.JSX.Element {
     setLoading(true);
     setError(null);
     if (isPatient) {
-      getPatientAppointments(Number(user.id))
+      getMyPatientAppointments()
         .then((data) => { setAppointments(data); setTotal(data.length); })
         .catch((err: Error) => { setError(err.message); })
         .finally(() => { setLoading(false); });

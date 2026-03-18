@@ -305,6 +305,10 @@ export async function getPatientAppointments(patientId: number): Promise<Appoint
   return apiFetch<AppointmentResponse[]>(`/api/v1/patients/${patientId}/appointments`);
 }
 
+export async function getMyPatientAppointments(skip = 0, limit = 100): Promise<AppointmentResponse[]> {
+  return apiFetch<AppointmentResponse[]>(`/api/v1/patients/me/appointments?skip=${skip}&limit=${limit}`);
+}
+
 export async function getPatient(patientId: number): Promise<PatientResponse> {
   return apiFetch<PatientResponse>(`/api/v1/patients/${patientId}`);
 }
