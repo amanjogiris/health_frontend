@@ -19,19 +19,23 @@ import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import Skeleton from '@mui/material/Skeleton';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
+import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TablePagination from '@mui/material/TablePagination';
 import TableRow from '@mui/material/TableRow';
+import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
+import { CalendarXIcon } from '@phosphor-icons/react/dist/ssr/CalendarX';
 import { ClockIcon } from '@phosphor-icons/react/dist/ssr/Clock';
 import { NotePencilIcon } from '@phosphor-icons/react/dist/ssr/NotePencil';
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
@@ -42,17 +46,181 @@ import dayjs from 'dayjs';
 import { RoleGuard } from '@/components/auth/role-guard';
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AppointmentSlotResponse, DoctorResponse, PaginatedResponse, SlotStatus, SlotToggleResponse } from '@/lib/api';
+import type { AppointmentSlotResponse, DoctorLeaveCreate, DoctorLeaveResponse, DoctorResponse, PaginatedResponse, SlotStatus, SlotToggleResponse } from '@/lib/api';
 import {
+  createDoctorLeave,
   createSlot,
+  deleteDoctorLeave,
   deleteSlot,
   generateSlotsForDoctor,
+  getDoctorLeaves,
   getDoctorProfile,
   getDoctors,
   getSlots,
   toggleSlotActive,
   updateSlot,
 } from '@/lib/api';
+
+// ── AddLeaveDialog ─────────────────────────────────────────────────────────────
+
+interface AddLeaveDialogProps {
+  open: boolean;
+  doctors: DoctorResponse[];
+  lockedDoctorId?: number;
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function AddLeaveDialog({ open, doctors, lockedDoctorId, onClose, onCreated }: AddLeaveDialogProps): React.JSX.Element {
+  const [form, setForm] = React.useState<DoctorLeaveCreate & { doctor_id: string }>({
+    doctor_id: lockedDoctorId ? String(lockedDoctorId) : '',
+    date: '',
+    is_full_day: true,
+    start_time: '',
+    end_time: '',
+    reason: '',
+  });
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (lockedDoctorId) setForm((f) => ({ ...f, doctor_id: String(lockedDoctorId) }));
+  }, [lockedDoctorId]);
+
+  function reset(): void {
+    setForm({ doctor_id: lockedDoctorId ? String(lockedDoctorId) : '', date: '', is_full_day: true, start_time: '', end_time: '', reason: '' });
+    setError(null);
+  }
+
+  async function handleSave(): Promise<void> {
+    if (!form.doctor_id || !form.date) {
+      setError('Doctor and date are required.');
+      return;
+    }
+    if (!form.is_full_day && (!form.start_time || !form.end_time)) {
+      setError('Start time and end time are required for a partial-day leave.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await createDoctorLeave(Number(form.doctor_id), {
+        date: form.date,
+        is_full_day: form.is_full_day,
+        start_time: form.is_full_day ? undefined : form.start_time || undefined,
+        end_time: form.is_full_day ? undefined : form.end_time || undefined,
+        reason: form.reason || undefined,
+      });
+      reset();
+      onCreated();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create leave.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={() => { reset(); onClose(); }} maxWidth="sm" fullWidth>
+      <DialogTitle>Add Leave / Unavailability</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {error ? <Alert severity="error">{error}</Alert> : null}
+
+          {/* Doctor picker */}
+          {lockedDoctorId ? (
+            <TextField
+              label="Doctor"
+              size="small"
+              value={doctors.find((d) => d.id === lockedDoctorId)?.doctor_name ?? `Doctor #${lockedDoctorId}`}
+              disabled
+            />
+          ) : (
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Doctor</InputLabel>
+              <Select
+                label="Doctor"
+                value={form.doctor_id}
+                onChange={(e) => { setForm((f) => ({ ...f, doctor_id: e.target.value })); }}
+              >
+                {doctors.map((d) => (
+                  <MenuItem key={d.id} value={String(d.id)}>
+                    {d.doctor_name ?? `Doctor #${d.id}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          <TextField
+            label="Date"
+            type="date"
+            size="small"
+            InputLabelProps={{ shrink: true }}
+            value={form.date}
+            onChange={(e) => { setForm((f) => ({ ...f, date: e.target.value })); }}
+            required
+            inputProps={{ min: new Date().toISOString().split('T')[0] }}
+          />
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.is_full_day}
+                onChange={(e) => { setForm((f) => ({ ...f, is_full_day: e.target.checked })); }}
+                color="warning"
+              />
+            }
+            label={form.is_full_day ? 'Full day' : 'Partial day (specific time window)'}
+          />
+
+          {!form.is_full_day ? (
+            <Stack direction="row" spacing={2}>
+              <TextField
+                label="Block start"
+                type="time"
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                value={form.start_time}
+                onChange={(e) => { setForm((f) => ({ ...f, start_time: e.target.value })); }}
+                required
+                sx={{ flex: 1 }}
+                inputProps={{ step: 300 }}
+              />
+              <TextField
+                label="Block end"
+                type="time"
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                value={form.end_time}
+                onChange={(e) => { setForm((f) => ({ ...f, end_time: e.target.value })); }}
+                required
+                sx={{ flex: 1 }}
+                inputProps={{ step: 300 }}
+              />
+            </Stack>
+          ) : null}
+
+          <TextField
+            label="Reason (optional)"
+            size="small"
+            multiline
+            rows={2}
+            value={form.reason}
+            onChange={(e) => { setForm((f) => ({ ...f, reason: e.target.value })); }}
+            placeholder="e.g. Personal leave, conference, holiday…"
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => { reset(); onClose(); }}>Cancel</Button>
+        <Button variant="contained" color="warning" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Add Leave'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -511,8 +679,56 @@ function SlotsContent(): React.JSX.Element {
   // Snackbar
   const [snack, setSnack] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = React.useState<'slots' | 'leaves'>('slots');
+
+  // ── Leave state ────────────────────────────────────────────────────────────
+  const [leaves, setLeaves] = React.useState<DoctorLeaveResponse[]>([]);
+  const [leavesLoading, setLeavesLoading] = React.useState(false);
+  const [addLeaveOpen, setAddLeaveOpen] = React.useState(false);
+  const [deleteLeaveTarget, setDeleteLeaveTarget] = React.useState<DoctorLeaveResponse | null>(null);
+  const [deletingLeave, setDeletingLeave] = React.useState(false);
+  const [deleteLeaveError, setDeleteLeaveError] = React.useState<string | null>(null);
+
   function showSnack(message: string, severity: 'success' | 'error' = 'success'): void {
     setSnack({ open: true, message, severity });
+  }
+
+  // ── Leave helpers ──────────────────────────────────────────────────────────
+  const activeDoctorId = ownDoctorId ?? (filterDoctor ? Number(filterDoctor) : undefined);
+
+  const fetchLeaves = React.useCallback(async () => {
+    if (!activeDoctorId) { setLeaves([]); return; }
+    setLeavesLoading(true);
+    try {
+      const data = await getDoctorLeaves(activeDoctorId);
+      setLeaves(data);
+    } catch (err: unknown) {
+      showSnack(err instanceof Error ? err.message : 'Failed to load leaves.', 'error');
+    } finally {
+      setLeavesLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDoctorId]);
+
+  React.useEffect(() => {
+    if (activeTab === 'leaves') void fetchLeaves();
+  }, [activeTab, fetchLeaves]);
+
+  async function handleDeleteLeave(): Promise<void> {
+    if (!deleteLeaveTarget) return;
+    setDeletingLeave(true);
+    setDeleteLeaveError(null);
+    try {
+      await deleteDoctorLeave(deleteLeaveTarget.doctor_id, deleteLeaveTarget.id);
+      setDeleteLeaveTarget(null);
+      showSnack('Leave removed.');
+      void fetchLeaves();
+    } catch (err: unknown) {
+      setDeleteLeaveError(err instanceof Error ? err.message : 'Failed to delete leave.');
+    } finally {
+      setDeletingLeave(false);
+    }
   }
 
   // When role is doctor, resolve their own profile once and lock the filter.
@@ -609,29 +825,55 @@ function SlotsContent(): React.JSX.Element {
         </Stack>
         <Stack direction="row" spacing={1}>
           <Tooltip title="Refresh">
-            <IconButton onClick={() => { void fetchSlots(); }}>
+            <IconButton onClick={() => { void (activeTab === 'slots' ? fetchSlots() : fetchLeaves()); }}>
               <ArrowClockwiseIcon />
             </IconButton>
           </Tooltip>
-          {!isDoctor ? (
+          {activeTab === 'slots' ? (
+            <>
+              {!isDoctor ? (
+                <Button
+                  variant="outlined"
+                  startIcon={<SparkleIcon />}
+                  onClick={() => { setGenerateOpen(true); }}
+                >
+                  Generate Slots
+                </Button>
+              ) : null}
+              <Button
+                variant="contained"
+                startIcon={<PlusIcon />}
+                onClick={() => { setCreateOpen(true); }}
+              >
+                Add Slot
+              </Button>
+            </>
+          ) : (
             <Button
-              variant="outlined"
-              startIcon={<SparkleIcon />}
-              onClick={() => { setGenerateOpen(true); }}
+              variant="contained"
+              color="warning"
+              startIcon={<PlusIcon />}
+              onClick={() => { setAddLeaveOpen(true); }}
+              disabled={!activeDoctorId}
             >
-              Generate Slots
+              Add Leave
             </Button>
-          ) : null}
-          <Button
-            variant="contained"
-            startIcon={<PlusIcon />}
-            onClick={() => { setCreateOpen(true); }}
-          >
-            Add Slot
-          </Button>
+          )}
         </Stack>
       </Stack>
 
+      {/* Tabs */}
+      <Tabs
+        value={activeTab}
+        onChange={(_, v: 'slots' | 'leaves') => { setActiveTab(v); }}
+        sx={{ borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab value="slots" label="Slots" icon={<ClockIcon size={16} />} iconPosition="start" />
+        <Tab value="leaves" label="Leave Management" icon={<CalendarXIcon size={16} />} iconPosition="start" />
+      </Tabs>
+
+      {activeTab === 'slots' ? (
+        <>
       {/* Filters */}
       <Card sx={{ p: 2 }}>
         <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" gap={2}>
@@ -828,6 +1070,8 @@ function SlotsContent(): React.JSX.Element {
           </>
         )}
       </Card>
+        </>
+      ) : null}
 
       {/* Create dialog */}
       <CreateSlotDialog
@@ -866,7 +1110,7 @@ function SlotsContent(): React.JSX.Element {
         }}
       />
 
-      {/* Delete confirm dialog */}
+      {/* ── Delete confirm dialog ──────────────────────────────────────────── */}
       <Dialog open={Boolean(deleteTarget)} onClose={() => { setDeleteTarget(null); }}>
         <DialogTitle>Delete Slot #{deleteTarget?.id}?</DialogTitle>
         <DialogContent>
@@ -882,6 +1126,140 @@ function SlotsContent(): React.JSX.Element {
           <Button onClick={() => { setDeleteTarget(null); setDeleteError(null); }}>Cancel</Button>
           <Button variant="contained" color="error" onClick={() => { void handleDelete(); }} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Leave Management section ───────────────────────────────────────── */}
+      {activeTab === 'leaves' ? (
+        <Card>
+          <CardHeader
+            title={activeDoctorId ? `Leave Records – Doctor #${activeDoctorId}` : 'Leave Records'}
+            titleTypographyProps={{ variant: 'subtitle1' }}
+            subheader={!activeDoctorId && !isDoctor ? 'Select a doctor in the Slots filter to manage their leave.' : undefined}
+            sx={{ py: 1.5 }}
+          />
+          <Divider />
+          {leavesLoading ? (
+            <Box sx={{ p: 2 }}>
+              <Stack spacing={1}>
+                {[1, 2, 3].map((i) => <Skeleton key={i} variant="rounded" height={36} />)}
+              </Stack>
+            </Box>
+          ) : !activeDoctorId ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <CalendarXIcon size={40} style={{ opacity: 0.25 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {isDoctor ? 'Your leave records will appear here.' : 'Select a doctor using the filter on the Slots tab first.'}
+              </Typography>
+            </Box>
+          ) : leaves.length === 0 ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <CalendarXIcon size={40} style={{ opacity: 0.25 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No leave records found. Click “Add Leave” to block a date.</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Date</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Time window</TableCell>
+                    <TableCell>Reason</TableCell>
+                    <TableCell>Added on</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {leaves.map((leave) => (
+                    <TableRow key={leave.id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>
+                          {dayjs(leave.date).format('MMM D, YYYY')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {dayjs(leave.date).format('dddd')}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={leave.is_full_day ? 'Full day' : 'Partial'}
+                          color={leave.is_full_day ? 'error' : 'warning'}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {leave.is_full_day ? (
+                          <Typography variant="body2" color="text.secondary">—</Typography>
+                        ) : (
+                          <Typography variant="body2">
+                            {leave.start_time} – {leave.end_time}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                          {leave.reason ?? '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {leave.created_at ? dayjs(leave.created_at).format('MMM D, YYYY') : '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Remove leave">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => { setDeleteLeaveTarget(leave); setDeleteLeaveError(null); }}
+                          >
+                            <TrashIcon size={16} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          )}
+        </Card>
+      ) : null}
+
+      {/* ── Add Leave dialog ──────────────────────────────────────────────── */}
+      <AddLeaveDialog
+        open={addLeaveOpen}
+        doctors={doctors}
+        lockedDoctorId={ownDoctorId}
+        onClose={() => { setAddLeaveOpen(false); }}
+        onCreated={() => {
+          setAddLeaveOpen(false);
+          showSnack('Leave block added. Slots on that date are now unavailable.');
+          void fetchLeaves();
+        }}
+      />
+
+      {/* ── Delete Leave confirm dialog ───────────────────────────────────── */}
+      <Dialog open={Boolean(deleteLeaveTarget)} onClose={() => { if (!deletingLeave) setDeleteLeaveTarget(null); }}>
+        <DialogTitle>Remove Leave Block?</DialogTitle>
+        <DialogContent>
+          {deleteLeaveError ? <Alert severity="error" sx={{ mb: 1 }}>{deleteLeaveError}</Alert> : null}
+          <Typography variant="body2">
+            <strong>{deleteLeaveTarget?.date ? dayjs(deleteLeaveTarget.date).format('dddd, MMM D YYYY') : ''}</strong>
+            {deleteLeaveTarget?.is_full_day
+              ? ' — Full day'
+              : ` — ${deleteLeaveTarget?.start_time ?? ''} – ${deleteLeaveTarget?.end_time ?? ''}`}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Removing this leave will make the time slots available for booking again.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setDeleteLeaveTarget(null); setDeleteLeaveError(null); }} disabled={deletingLeave}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={() => { void handleDeleteLeave(); }} disabled={deletingLeave}>
+            {deletingLeave ? 'Removing…' : 'Remove Leave'}
           </Button>
         </DialogActions>
       </Dialog>

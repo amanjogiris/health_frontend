@@ -618,3 +618,51 @@ export async function cancelDynamicAppointment(
     body: JSON.stringify({ cancelled_reason: reason }),
   });
 }
+
+// ── Doctor leave / unavailability ────────────────────────────────────────────
+
+export interface DoctorLeaveCreate {
+  date: string;            // YYYY-MM-DD
+  is_full_day: boolean;
+  start_time?: string;     // HH:MM  (required when is_full_day=false)
+  end_time?: string;       // HH:MM  (required when is_full_day=false)
+  reason?: string;
+}
+
+export interface DoctorLeaveResponse {
+  id: number;
+  doctor_id: number;
+  date: string;
+  is_full_day: boolean;
+  start_time?: string | null;
+  end_time?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+}
+
+export async function getDoctorLeaves(
+  doctorId: number,
+  params?: { date_from?: string; date_to?: string },
+): Promise<DoctorLeaveResponse[]> {
+  const qs = new URLSearchParams();
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  const query = qs.toString() ? `?${qs}` : '';
+  return apiFetch<DoctorLeaveResponse[]>(`/api/v1/doctors/${doctorId}/leaves${query}`);
+}
+
+export async function createDoctorLeave(
+  doctorId: number,
+  data: DoctorLeaveCreate,
+): Promise<DoctorLeaveResponse> {
+  return apiFetch<DoctorLeaveResponse>(`/api/v1/doctors/${doctorId}/leaves`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteDoctorLeave(doctorId: number, leaveId: number): Promise<void> {
+  return apiFetch<void>(`/api/v1/doctors/${doctorId}/leaves/${leaveId}`, {
+    method: 'DELETE',
+  });
+}
