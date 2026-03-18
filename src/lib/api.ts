@@ -42,6 +42,7 @@ export interface AvailabilityInput {
   day_of_week: number; // 0 = Monday … 6 = Sunday
   start_time: string;  // "HH:MM"
   end_time: string;    // "HH:MM"
+  slot_interval?: number; // minutes per slot (default 15)
 }
 
 export interface AvailabilityResponse {
@@ -496,6 +497,16 @@ export async function setDoctorAvailability(
   availability: AvailabilityInput[]
 ): Promise<AvailabilityResponse[]> {
   return apiFetch<AvailabilityResponse[]>(`/api/v1/doctors/${doctorId}/availability`, {
+    method: 'PUT',
+    body: JSON.stringify(availability),
+  });
+}
+
+/** Doctor role: update own availability (no doctor_id in URL). */
+export async function setOwnAvailability(
+  availability: AvailabilityInput[]
+): Promise<AvailabilityResponse[]> {
+  return apiFetch<AvailabilityResponse[]>(`/api/v1/doctors/availability`, {
     method: 'PUT',
     body: JSON.stringify(availability),
   });

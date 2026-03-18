@@ -35,6 +35,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
+import { CalendarCheckIcon } from '@phosphor-icons/react/dist/ssr/CalendarCheck';
 import { CalendarXIcon } from '@phosphor-icons/react/dist/ssr/CalendarX';
 import { ClockIcon } from '@phosphor-icons/react/dist/ssr/Clock';
 import { NotePencilIcon } from '@phosphor-icons/react/dist/ssr/NotePencil';
@@ -46,17 +47,20 @@ import dayjs from 'dayjs';
 import { RoleGuard } from '@/components/auth/role-guard';
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AppointmentSlotResponse, DoctorLeaveCreate, DoctorLeaveResponse, DoctorResponse, PaginatedResponse, SlotStatus, SlotToggleResponse } from '@/lib/api';
+import type { AppointmentSlotResponse, AvailabilityInput, AvailabilityResponse, DoctorLeaveCreate, DoctorLeaveResponse, DoctorResponse, PaginatedResponse, SlotStatus, SlotToggleResponse } from '@/lib/api';
 import {
   createDoctorLeave,
   createSlot,
   deleteDoctorLeave,
   deleteSlot,
   generateSlotsForDoctor,
+  getDoctorAvailability,
   getDoctorLeaves,
   getDoctorProfile,
   getDoctors,
   getSlots,
+  setDoctorAvailability,
+  setOwnAvailability,
   toggleSlotActive,
   updateSlot,
 } from '@/lib/api';
@@ -680,7 +684,7 @@ function SlotsContent(): React.JSX.Element {
   const [snack, setSnack] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = React.useState<'slots' | 'leaves'>('slots');
+  const [activeTab, setActiveTab] = React.useState<'slots' | 'leaves' | 'availability'>('slots');
 
   // ── Leave state ────────────────────────────────────────────────────────────
   const [leaves, setLeaves] = React.useState<DoctorLeaveResponse[]>([]);
@@ -696,6 +700,68 @@ function SlotsContent(): React.JSX.Element {
 
   // ── Leave helpers ──────────────────────────────────────────────────────────
   const activeDoctorId = ownDoctorId ?? (filterDoctor ? Number(filterDoctor) : undefined);
+
+  // ── Availability state ─────────────────────────────────────────────────────
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  type DaySchedule = { enabled: boolean; start_time: string; end_time: string; slot_interval: number };
+  const defaultDay = (): DaySchedule => ({ enabled: false, start_time: '09:00', end_time: '17:00', slot_interval: 15 });
+
+  const [schedule, setSchedule] = React.useState<Record<number, DaySchedule>>(
+    Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, defaultDay()]))
+  );
+  const [availLoading, setAvailLoading] = React.useState(false);
+  const [availSaving, setAvailSaving] = React.useState(false);
+
+  const fetchAvailability = React.useCallback(async () => {
+    if (!activeDoctorId) return;
+    setAvailLoading(true);
+    try {
+      const records: AvailabilityResponse[] = await getDoctorAvailability(activeDoctorId);
+      setSchedule(() => {
+        const next: Record<number, DaySchedule> = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, defaultDay()]));
+        records.forEach((r) => {
+          next[r.day_of_week] = { enabled: true, start_time: r.start_time.slice(0, 5), end_time: r.end_time.slice(0, 5), slot_interval: r.slot_interval ?? 15 };
+        });
+        return next;
+      });
+    } catch (err: unknown) {
+      showSnack(err instanceof Error ? err.message : 'Failed to load availability.', 'error');
+    } finally {
+      setAvailLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDoctorId]);
+
+  React.useEffect(() => {
+    if (activeTab === 'availability') void fetchAvailability();
+  }, [activeTab, fetchAvailability]);
+
+  async function handleSaveAvailability(): Promise<void> {
+    if (!activeDoctorId) return;
+    setAvailSaving(true);
+    try {
+      const payload: AvailabilityInput[] = [0, 1, 2, 3, 4, 5, 6]
+        .filter((d) => schedule[d].enabled)
+        .map((d) => ({
+          day_of_week: d,
+          start_time: schedule[d].start_time,
+          end_time: schedule[d].end_time,
+          slot_interval: schedule[d].slot_interval,
+        }));
+      // Doctors use their own scoped endpoint; admins use the doctor-id endpoint
+      if (isDoctor) {
+        await setOwnAvailability(payload);
+      } else {
+        await setDoctorAvailability(activeDoctorId, payload);
+      }
+      showSnack('Availability schedule saved.');
+    } catch (err: unknown) {
+      showSnack(err instanceof Error ? err.message : 'Failed to save availability.', 'error');
+    } finally {
+      setAvailSaving(false);
+    }
+  }
 
   const fetchLeaves = React.useCallback(async () => {
     if (!activeDoctorId) { setLeaves([]); return; }
@@ -825,7 +891,7 @@ function SlotsContent(): React.JSX.Element {
         </Stack>
         <Stack direction="row" spacing={1}>
           <Tooltip title="Refresh">
-            <IconButton onClick={() => { void (activeTab === 'slots' ? fetchSlots() : fetchLeaves()); }}>
+            <IconButton onClick={() => { void (activeTab === 'slots' ? fetchSlots() : activeTab === 'leaves' ? fetchLeaves() : fetchAvailability()); }}>
               <ArrowClockwiseIcon />
             </IconButton>
           </Tooltip>
@@ -848,7 +914,7 @@ function SlotsContent(): React.JSX.Element {
                 Add Slot
               </Button>
             </>
-          ) : (
+          ) : activeTab === 'leaves' ? (
             <Button
               variant="contained"
               color="warning"
@@ -858,6 +924,16 @@ function SlotsContent(): React.JSX.Element {
             >
               Add Leave
             </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<CalendarCheckIcon />}
+              onClick={() => { void handleSaveAvailability(); }}
+              disabled={availSaving || !activeDoctorId}
+            >
+              {availSaving ? 'Saving…' : 'Save Schedule'}
+            </Button>
           )}
         </Stack>
       </Stack>
@@ -865,11 +941,12 @@ function SlotsContent(): React.JSX.Element {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onChange={(_, v: 'slots' | 'leaves') => { setActiveTab(v); }}
+        onChange={(_, v: 'slots' | 'leaves' | 'availability') => { setActiveTab(v); }}
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab value="slots" label="Slots" icon={<ClockIcon size={16} />} iconPosition="start" />
         <Tab value="leaves" label="Leave Management" icon={<CalendarXIcon size={16} />} iconPosition="start" />
+        <Tab value="availability" label="Availability" icon={<CalendarCheckIcon size={16} />} iconPosition="start" />
       </Tabs>
 
       {activeTab === 'slots' ? (
@@ -1223,6 +1300,107 @@ function SlotsContent(): React.JSX.Element {
                   ))}
                 </TableBody>
               </Table>
+            </Box>
+          )}
+        </Card>
+      ) : null}
+
+      {/* ── Availability / Weekly Schedule panel ───────────────────────────── */}
+      {activeTab === 'availability' ? (
+        <Card>
+          <CardHeader
+            title="Weekly Schedule"
+            subheader="Enable each day you work and set your hours. Changes are saved when you click Save Schedule."
+            sx={{ py: 1.5 }}
+          />
+          <Divider />
+          {availLoading ? (
+            <Box sx={{ p: 2 }}>
+              <Stack spacing={1}>
+                {[1, 2, 3, 4, 5, 6, 7].map((i) => <Skeleton key={i} variant="rounded" height={56} />)}
+              </Stack>
+            </Box>
+          ) : !activeDoctorId ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <CalendarCheckIcon size={40} style={{ opacity: 0.25 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {isDoctor ? 'Loading your schedule…' : 'Select a doctor using the filter on the Slots tab first.'}
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ p: 2 }}>
+              <Stack spacing={1.5}>
+                {[0, 1, 2, 3, 4, 5, 6].map((d) => {
+                  const day = schedule[d];
+                  return (
+                    <Box
+                      key={d}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        p: 1.5,
+                        borderRadius: 1,
+                        border: '1px solid',
+                        borderColor: day.enabled ? 'primary.light' : 'divider',
+                        bgcolor: day.enabled ? 'action.hover' : 'transparent',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={day.enabled}
+                            onChange={(e) => { setSchedule((prev) => ({ ...prev, [d]: { ...prev[d], enabled: e.target.checked } })); }}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" fontWeight={600} sx={{ minWidth: 90 }}>
+                            {DAYS[d]}
+                          </Typography>
+                        }
+                        labelPlacement="end"
+                        sx={{ m: 0, minWidth: 180 }}
+                      />
+                      <TextField
+                        label="From"
+                        type="time"
+                        size="small"
+                        value={day.start_time}
+                        disabled={!day.enabled}
+                        onChange={(e) => { setSchedule((prev) => ({ ...prev, [d]: { ...prev[d], start_time: e.target.value } })); }}
+                        sx={{ width: 140 }}
+                        inputProps={{ step: 300 }}
+                      />
+                      <TextField
+                        label="To"
+                        type="time"
+                        size="small"
+                        value={day.end_time}
+                        disabled={!day.enabled}
+                        onChange={(e) => { setSchedule((prev) => ({ ...prev, [d]: { ...prev[d], end_time: e.target.value } })); }}
+                        sx={{ width: 140 }}
+                        inputProps={{ step: 300 }}
+                      />
+                      <FormControl size="small" sx={{ minWidth: 130 }} disabled={!day.enabled}>
+                        <InputLabel>Slot (min)</InputLabel>
+                        <Select
+                          label="Slot (min)"
+                          value={day.slot_interval}
+                          onChange={(e) => { setSchedule((prev) => ({ ...prev, [d]: { ...prev[d], slot_interval: Number(e.target.value) } })); }}
+                        >
+                          {[5, 10, 15, 20, 30, 45, 60].map((m) => (
+                            <MenuItem key={m} value={m}>{m} min</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {!day.enabled ? (
+                        <Typography variant="caption" color="text.secondary">Off – not available for booking</Typography>
+                      ) : null}
+                    </Box>
+                  );
+                })}
+              </Stack>
             </Box>
           )}
         </Card>
