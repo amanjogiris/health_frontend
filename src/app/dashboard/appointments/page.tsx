@@ -40,9 +40,9 @@ import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AppointmentResponse, AppointmentSlotResponse, BookingResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
+import type { AppointmentResponse, AppointmentSlotResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
 import {
-  bookAppointment,
+  bookDynamicSlot,
   cancelAppointment,
   getAppointments,
   updateAppointmentNotes,
@@ -53,6 +53,8 @@ import {
   getPatients,
   getSlots,
 } from '@/lib/api';
+import { DynamicSlotPicker } from '@/components/dashboard/booking/dynamic-slot-picker';
+import type { SelectedBookingSlot } from '@/components/dashboard/booking/dynamic-slot-picker';
 
 const statusConfig: Record<
   string,
@@ -70,7 +72,6 @@ const statusConfig: Record<
 interface BookForm {
   patient_id: string;
   doctor_id: string;
-  slot_id: string;
   reason_for_visit: string;
 }
 
@@ -106,12 +107,11 @@ export default function Page(): React.JSX.Element {
   const [bookOpen, setBookOpen] = React.useState(false);
   const [booking, setBooking] = React.useState(false);
   const [bookError, setBookError] = React.useState<string | null>(null);
-  const [bookForm, setBookForm] = React.useState<BookForm>({ patient_id: '', doctor_id: '', slot_id: '', reason_for_visit: '' });
+  const [bookForm, setBookForm] = React.useState<BookForm>({ patient_id: '', doctor_id: '', reason_for_visit: '' });
+  const [bookSelectedSlot, setBookSelectedSlot] = React.useState<SelectedBookingSlot | null>(null);
   const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
   const [clinics, setClinics] = React.useState<ClinicResponse[]>([]);
   const [allSlots, setAllSlots] = React.useState<AppointmentSlotResponse[]>([]); // for table id→time lookup
-  const [availableSlots, setAvailableSlots] = React.useState<AppointmentSlotResponse[]>([]); // for book dialog
-  const [slotsLoading, setSlotsLoading] = React.useState(false);
   const [doctorSearch, setDoctorSearch] = React.useState('');
 
   // Patient search (for admin/doctor booking)
@@ -248,8 +248,8 @@ export default function Page(): React.JSX.Element {
 
   // ── Book helpers (admin) ────────────────────────────────────────────────────
   function openBookDialog(): void {
-    setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', slot_id: '', reason_for_visit: '' });
-    setAvailableSlots([]);
+    setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', reason_for_visit: '' });
+    setBookSelectedSlot(null);
     setDoctorSearch('');
     setPatientSearch('');
     setSelectedPatient(null);
@@ -272,14 +272,8 @@ export default function Page(): React.JSX.Element {
   }
 
   function onDoctorChange(doctorId: string): void {
-    setBookForm((f) => ({ ...f, doctor_id: doctorId, slot_id: '' }));
-    setAvailableSlots([]);
-    if (!doctorId) return;
-    setSlotsLoading(true);
-    getSlots({ doctor_id: Number(doctorId) })
-      .then((data) => { setAvailableSlots(data.filter((s) => !s.is_booked && s.is_active && s.status === 'available')); })
-      .catch(() => { /* non-fatal */ })
-      .finally(() => { setSlotsLoading(false); });
+    setBookForm((f) => ({ ...f, doctor_id: doctorId }));
+    setBookSelectedSlot(null);
   }
 
   function getClinicNameForDoctor(doctorId: string): string {
@@ -290,9 +284,9 @@ export default function Page(): React.JSX.Element {
   }
 
   async function handleBook(): Promise<void> {
-    const { patient_id, doctor_id, slot_id } = bookForm;
-    if (!patient_id || !doctor_id || !slot_id) {
-      setBookError('Patient ID, doctor and slot are required.');
+    const { patient_id, doctor_id } = bookForm;
+    if (!patient_id || !doctor_id || !bookSelectedSlot) {
+      setBookError('Patient, doctor and a time slot are required.');
       return;
     }
     const doctor = doctors.find((d) => String(d.id) === doctor_id);
@@ -301,20 +295,17 @@ export default function Page(): React.JSX.Element {
     setBooking(true);
     setBookError(null);
     try {
-      const result: BookingResponse = await bookAppointment({
+      await bookDynamicSlot({
         patient_id: Number(patient_id),
         doctor_id: Number(doctor_id),
         clinic_id: doctor.clinic_id,
-        slot_id: Number(slot_id),
+        start_time: bookSelectedSlot.start_time,
+        slots_requested: 1,
         reason_for_visit: bookForm.reason_for_visit || undefined,
       });
-      if (result.success) {
-        setBookOpen(false);
-        load();
-        setSnackbar({ open: true, message: result.message, severity: 'success' });
-      } else {
-        setBookError(result.message);
-      }
+      setBookOpen(false);
+      load();
+      setSnackbar({ open: true, message: 'Appointment booked successfully.', severity: 'success' });
     } catch (err: unknown) {
       setBookError(err instanceof Error ? err.message : 'Failed to book appointment.');
     } finally {
@@ -756,75 +747,12 @@ export default function Page(): React.JSX.Element {
               />
             ) : null}
 
-            {/* ── Week calendar slot picker ───────────────────────────────── */}
+            {/* ── Dynamic calendar slot picker ──────────────────────────── */}
             {bookForm.doctor_id ? (
-              slotsLoading ? (
-                <Typography variant="body2" color="text.secondary">Loading available slots…</Typography>
-              ) : availableSlots.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No available slots for this doctor in the next 7 days.</Typography>
-              ) : (() => {
-                const byDay = new Map<string, AppointmentSlotResponse[]>();
-                for (const s of availableSlots) {
-                  const key = dayjs(s.start_time).format('YYYY-MM-DD');
-                  if (!byDay.has(key)) byDay.set(key, []);
-                  byDay.get(key)!.push(s);
-                }
-                const days = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
-                return (
-                  <Box sx={{ overflowX: 'auto' }}>
-                    <Stack direction="row" spacing={1} sx={{ minWidth: days.length * 120 }}>
-                      {days.map(([dateKey, slots]) => (
-                        <Box
-                          key={dateKey}
-                          sx={{ flex: '1 0 110px', border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}
-                        >
-                          <Box sx={{ bgcolor: 'primary.main', px: 1, py: 0.75, textAlign: 'center' }}>
-                            <Typography variant="caption" sx={{ color: 'primary.contrastText', fontWeight: 700, display: 'block' }}>
-                              {dayjs(dateKey).format('ddd')}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
-                              {dayjs(dateKey).format('MMM D')}
-                            </Typography>
-                          </Box>
-                          <Stack spacing={0.5} sx={{ p: 0.75 }}>
-                            {slots.map((s) => {
-                              const sel = bookForm.slot_id === String(s.id);
-                              return (
-                                <Box
-                                  key={s.id}
-                                  onClick={() => { if (!booking) setBookForm((f) => ({ ...f, slot_id: String(s.id) })); }}
-                                  sx={{
-                                    px: 1, py: 0.5, borderRadius: 1, cursor: 'pointer', textAlign: 'center',
-                                    bgcolor: sel ? 'primary.main' : 'action.hover',
-                                    color: sel ? 'primary.contrastText' : 'text.primary',
-                                    border: '1px solid',
-                                    borderColor: sel ? 'primary.dark' : 'transparent',
-                                    '&:hover': { bgcolor: sel ? 'primary.dark' : 'action.selected' },
-                                    transition: 'background-color 0.15s',
-                                  }}
-                                >
-                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
-                                    {dayjs(s.start_time).format('HH:mm')}
-                                  </Typography>
-                                  <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
-                                    {dayjs(s.end_time).format('HH:mm')}
-                                  </Typography>
-                                </Box>
-                              );
-                            })}
-                          </Stack>
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Box>
-                );
-              })()
-            ) : null}
-
-            {bookForm.slot_id ? (
-              <Typography variant="body2" color="primary.main">
-                Selected: {(() => { const s = availableSlots.find((x) => String(x.id) === bookForm.slot_id); return s ? `${dayjs(s.start_time).format('ddd, MMM D')} at ${dayjs(s.start_time).format('HH:mm')} – ${dayjs(s.end_time).format('HH:mm')}` : ''; })()}
-              </Typography>
+              <DynamicSlotPicker
+                doctorId={Number(bookForm.doctor_id)}
+                onSlotChange={(slot) => { setBookSelectedSlot(slot); }}
+              />
             ) : null}
 
             <TextField
@@ -840,7 +768,7 @@ export default function Page(): React.JSX.Element {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setBookOpen(false); }} disabled={booking}>Cancel</Button>
-          <Button onClick={() => { void handleBook(); }} variant="contained" disabled={booking || !bookForm.doctor_id || !bookForm.slot_id}>
+          <Button onClick={() => { void handleBook(); }} variant="contained" disabled={booking || !bookForm.doctor_id || !bookSelectedSlot}>
             {booking ? 'Booking…' : 'Book Appointment'}
           </Button>
         </DialogActions>

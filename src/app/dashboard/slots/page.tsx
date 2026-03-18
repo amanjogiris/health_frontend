@@ -40,11 +40,14 @@ import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
 import dayjs from 'dayjs';
 
 import { RoleGuard } from '@/components/auth/role-guard';
+import type { UserRole } from '@/types/user';
+import { useUser } from '@/hooks/use-user';
 import type { AppointmentSlotResponse, DoctorResponse, PaginatedResponse, SlotStatus, SlotToggleResponse } from '@/lib/api';
 import {
   createSlot,
   deleteSlot,
   generateSlotsForDoctor,
+  getDoctorProfile,
   getDoctors,
   getSlots,
   toggleSlotActive,
@@ -75,23 +78,30 @@ function toLocalDatetimeValue(iso: string): string {
 interface CreateSlotDialogProps {
   open: boolean;
   doctors: DoctorResponse[];
+  /** When set, the doctor field is pre-filled and locked (used for doctor role). */
+  lockedDoctorId?: number;
   onClose: () => void;
   onCreated: () => void;
 }
 
-function CreateSlotDialog({ open, doctors, onClose, onCreated }: CreateSlotDialogProps): React.JSX.Element {
+function CreateSlotDialog({ open, doctors, lockedDoctorId, onClose, onCreated }: CreateSlotDialogProps): React.JSX.Element {
   const [form, setForm] = React.useState({
-    doctor_id: '',
+    doctor_id: lockedDoctorId ? String(lockedDoctorId) : '',
     start_time: '',
     end_time: '',
     capacity: '1',
     status: 'available' as SlotStatus,
   });
+
+  React.useEffect(() => {
+    if (lockedDoctorId) setForm((f) => ({ ...f, doctor_id: String(lockedDoctorId) }));
+  }, [lockedDoctorId]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   function reset(): void {
-    setForm({ doctor_id: '', start_time: '', end_time: '', capacity: '1', status: 'available' });
+    // Preserve locked doctor_id so re-opening the dialog passes validation.
+    setForm({ doctor_id: lockedDoctorId ? String(lockedDoctorId) : '', start_time: '', end_time: '', capacity: '1', status: 'available' });
     setError(null);
   }
 
@@ -129,20 +139,29 @@ function CreateSlotDialog({ open, doctors, onClose, onCreated }: CreateSlotDialo
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error ? <Alert severity="error">{error}</Alert> : null}
 
-          <FormControl fullWidth size="small" required>
-            <InputLabel>Doctor</InputLabel>
-            <Select
+          {lockedDoctorId ? (
+            <TextField
               label="Doctor"
-              value={form.doctor_id}
-              onChange={(e) => { setForm((f) => ({ ...f, doctor_id: e.target.value })); }}
-            >
-              {doctors.map((d) => (
-                <MenuItem key={d.id} value={String(d.id)}>
-                  {d.doctor_name ?? `Doctor #${d.id}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+              size="small"
+              value={doctors.find((d) => d.id === lockedDoctorId)?.doctor_name ?? `Doctor #${lockedDoctorId}`}
+              disabled
+            />
+          ) : (
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Doctor</InputLabel>
+              <Select
+                label="Doctor"
+                value={form.doctor_id}
+                onChange={(e) => { setForm((f) => ({ ...f, doctor_id: e.target.value })); }}
+              >
+                {doctors.map((d) => (
+                  <MenuItem key={d.id} value={String(d.id)}>
+                    {d.doctor_name ?? `Doctor #${d.id}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           <TextField
             label="Start Time"
@@ -325,12 +344,14 @@ function EditSlotDialog({ slot, onClose, onUpdated }: EditSlotDialogProps): Reac
 interface GenerateSlotsDialogProps {
   open: boolean;
   doctors: DoctorResponse[];
+  /** When set, the doctor field is pre-filled and locked (used for doctor role). */
+  lockedDoctorId?: number;
   onClose: () => void;
   onGenerated: (count: number) => void;
 }
 
-function GenerateSlotsDialog({ open, doctors, onClose, onGenerated }: GenerateSlotsDialogProps): React.JSX.Element {
-  const [doctorId, setDoctorId] = React.useState('');
+function GenerateSlotsDialog({ open, doctors, lockedDoctorId, onClose, onGenerated }: GenerateSlotsDialogProps): React.JSX.Element {
+  const [doctorId, setDoctorId] = React.useState(lockedDoctorId ? String(lockedDoctorId) : '');
   const [mode, setMode] = React.useState<'rolling' | 'range'>('rolling');
   const [daysAhead, setDaysAhead] = React.useState('60');
   const [dateFrom, setDateFrom] = React.useState('');
@@ -338,8 +359,12 @@ function GenerateSlotsDialog({ open, doctors, onClose, onGenerated }: GenerateSl
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (lockedDoctorId) setDoctorId(String(lockedDoctorId));
+  }, [lockedDoctorId]);
+
   function reset(): void {
-    setDoctorId('');
+    setDoctorId(lockedDoctorId ? String(lockedDoctorId) : '');
     setMode('rolling');
     setDaysAhead('60');
     setDateFrom('');
@@ -375,20 +400,29 @@ function GenerateSlotsDialog({ open, doctors, onClose, onGenerated }: GenerateSl
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error ? <Alert severity="error">{error}</Alert> : null}
 
-          <FormControl fullWidth size="small" required>
-            <InputLabel>Doctor</InputLabel>
-            <Select
+          {lockedDoctorId ? (
+            <TextField
               label="Doctor"
-              value={doctorId}
-              onChange={(e) => { setDoctorId(e.target.value); }}
-            >
-              {doctors.map((d) => (
-                <MenuItem key={d.id} value={String(d.id)}>
-                  {d.doctor_name ?? `Doctor #${d.id}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+              size="small"
+              value={doctors.find((d) => d.id === lockedDoctorId)?.doctor_name ?? `Doctor #${lockedDoctorId}`}
+              disabled
+            />
+          ) : (
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Doctor</InputLabel>
+              <Select
+                label="Doctor"
+                value={doctorId}
+                onChange={(e) => { setDoctorId(e.target.value); }}
+              >
+                {doctors.map((d) => (
+                  <MenuItem key={d.id} value={String(d.id)}>
+                    {d.doctor_name ?? `Doctor #${d.id}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           <FormControl fullWidth size="small">
             <InputLabel>Generation Mode</InputLabel>
@@ -446,8 +480,14 @@ function GenerateSlotsDialog({ open, doctors, onClose, onGenerated }: GenerateSl
 // ── main content ───────────────────────────────────────────────────────────────
 
 function SlotsContent(): React.JSX.Element {
+  const { user } = useUser();
+  const role = user?.role as UserRole | undefined;
+  const isDoctor = role === 'doctor';
+
   const [slots, setSlots] = React.useState<AppointmentSlotResponse[]>([]);
   const [doctors, setDoctors] = React.useState<DoctorResponse[]>([]);
+  /** The logged-in doctor's own profile ID — set only when role === 'doctor'. */
+  const [ownDoctorId, setOwnDoctorId] = React.useState<number | undefined>(undefined);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [page, setPage] = React.useState(0);
@@ -458,7 +498,7 @@ function SlotsContent(): React.JSX.Element {
   const [filterStatus, setFilterStatus] = React.useState<SlotStatus | 'all'>('all');
   const [filterDateFrom, setFilterDateFrom] = React.useState('');
   const [filterDateTo, setFilterDateTo] = React.useState('');
-  const [includeAll, setIncludeAll] = React.useState(false);
+  const [includeAll, setIncludeAll] = React.useState(true);
 
   // Dialogs
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -469,24 +509,33 @@ function SlotsContent(): React.JSX.Element {
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   // Snackbar
-  const [snack, setSnack] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
+  const [snack, setSnack] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
   function showSnack(message: string, severity: 'success' | 'error' = 'success'): void {
     setSnack({ open: true, message, severity });
   }
 
+  // When role is doctor, resolve their own profile once and lock the filter.
+  React.useEffect(() => {
+    if (!isDoctor) return;
+    getDoctorProfile()
+      .then((profile) => {
+        setOwnDoctorId(profile.id);
+        setFilterDoctor(String(profile.id));
+        setDoctors([profile]);   // doctors list only needs own entry for label lookup
+      })
+      .catch(() => { /* non-fatal – page still loads */ });
+  }, [isDoctor]);
+
   const fetchDoctors = React.useCallback(async () => {
+    if (isDoctor) return;   // doctor branch handled above
     try {
       const result = await getDoctors({ limit: 200 });
       setDoctors(result.items);
     } catch {
       /* non-fatal */
     }
-  }, []);
+  }, [isDoctor]);
 
   const fetchSlots = React.useCallback(async () => {
     setLoading(true);
@@ -564,13 +613,15 @@ function SlotsContent(): React.JSX.Element {
               <ArrowClockwiseIcon />
             </IconButton>
           </Tooltip>
-          <Button
-            variant="outlined"
-            startIcon={<SparkleIcon />}
-            onClick={() => { setGenerateOpen(true); }}
-          >
-            Generate Slots
-          </Button>
+          {!isDoctor ? (
+            <Button
+              variant="outlined"
+              startIcon={<SparkleIcon />}
+              onClick={() => { setGenerateOpen(true); }}
+            >
+              Generate Slots
+            </Button>
+          ) : null}
           <Button
             variant="contained"
             startIcon={<PlusIcon />}
@@ -584,22 +635,24 @@ function SlotsContent(): React.JSX.Element {
       {/* Filters */}
       <Card sx={{ p: 2 }}>
         <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" gap={2}>
-          {/* Doctor filter */}
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel>Doctor</InputLabel>
-            <Select
-              label="Doctor"
-              value={filterDoctor}
-              onChange={(e) => { setFilterDoctor(e.target.value); }}
-            >
-              <MenuItem value="">All Doctors</MenuItem>
-              {doctors.map((d) => (
-                <MenuItem key={d.id} value={String(d.id)}>
-                  {d.doctor_name ?? `Doctor #${d.id}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {/* Doctor filter — hidden for doctor role (auto-locked to own profile) */}
+          {!isDoctor ? (
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Doctor</InputLabel>
+              <Select
+                label="Doctor"
+                value={filterDoctor}
+                onChange={(e) => { setFilterDoctor(e.target.value); }}
+              >
+                <MenuItem value="">All Doctors</MenuItem>
+                {doctors.map((d) => (
+                  <MenuItem key={d.id} value={String(d.id)}>
+                    {d.doctor_name ?? `Doctor #${d.id}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : null}
 
           {/* Status filter */}
           <FormControl size="small" sx={{ minWidth: 160 }}>
@@ -645,7 +698,7 @@ function SlotsContent(): React.JSX.Element {
                 onChange={(e) => { setIncludeAll(e.target.checked); }}
               />
             }
-            label="Include past / booked"
+            label="Include past / inactive"
           />
 
           {/* Clear */}
@@ -653,11 +706,11 @@ function SlotsContent(): React.JSX.Element {
             size="small"
             variant="text"
             onClick={() => {
-              setFilterDoctor('');
+              if (!isDoctor) setFilterDoctor('');
               setFilterStatus('all');
               setFilterDateFrom('');
               setFilterDateTo('');
-              setIncludeAll(false);
+              setIncludeAll(true);
             }}
           >
             Clear
@@ -780,6 +833,7 @@ function SlotsContent(): React.JSX.Element {
       <CreateSlotDialog
         open={createOpen}
         doctors={doctors}
+        lockedDoctorId={ownDoctorId}
         onClose={() => { setCreateOpen(false); }}
         onCreated={() => {
           setCreateOpen(false);
@@ -803,6 +857,7 @@ function SlotsContent(): React.JSX.Element {
       <GenerateSlotsDialog
         open={generateOpen}
         doctors={doctors}
+        lockedDoctorId={ownDoctorId}
         onClose={() => { setGenerateOpen(false); }}
         onGenerated={(count) => {
           setGenerateOpen(false);
@@ -850,7 +905,7 @@ function SlotsContent(): React.JSX.Element {
 
 export default function Page(): React.JSX.Element {
   return (
-    <RoleGuard allowedRoles={['admin', 'super_admin']}>
+    <RoleGuard allowedRoles={['admin', 'super_admin', 'doctor']}>
       <SlotsContent />
     </RoleGuard>
   );

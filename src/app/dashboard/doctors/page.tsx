@@ -39,13 +39,12 @@ import { PencilSimpleIcon } from '@phosphor-icons/react/dist/ssr/PencilSimple';
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { StethoscopeIcon } from '@phosphor-icons/react/dist/ssr/Stethoscope';
 import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
-import dayjs from 'dayjs';
-
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { AppointmentSlotResponse, AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
-import { bookAppointment, deleteDoctor, generateDoctorSlots, getClinics, getDoctors, getSlots, registerDoctor, updateDoctor } from '@/lib/api';
+import { BookingDialog } from '@/components/dashboard/booking/booking-dialog';
+import type { AvailabilityInput, ClinicResponse, DoctorResponse } from '@/lib/api';
+import { deleteDoctor, generateDoctorSlots, getClinics, getDoctorAvailability, getDoctors, registerDoctor, setDoctorAvailability, updateDoctor } from '@/lib/api';
 
 const DOW_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -132,15 +131,10 @@ export default function Page(): React.JSX.Element {
   const [editing, setEditing] = React.useState(false);
   const [editError, setEditError] = React.useState<string | null>(null);
   const [editForm, setEditForm] = React.useState({ name: '', email: '', mobile_no: '', license_number: '', specialty: '', qualifications: '', experience_years: '0', max_patients_per_day: '20', consultation_duration_minutes: '15', clinic_id: '' });
+  const [editAvailRows, setEditAvailRows] = React.useState<AvailabilityRow[]>([]);
 
-  // Patient book-from-doctor dialog
+  // Patient book-from-doctor dialog (uses shared BookingDialog component)
   const [bookTarget, setBookTarget] = React.useState<DoctorResponse | null>(null);
-  const [bookSlots, setBookSlots] = React.useState<AppointmentSlotResponse[]>([]);
-  const [bookSlotId, setBookSlotId] = React.useState('');
-  const [bookReason, setBookReason] = React.useState('');
-  const [bookSlotsLoading, setBookSlotsLoading] = React.useState(false);
-  const [bookingInProgress, setBookingInProgress] = React.useState(false);
-  const [bookError, setBookError] = React.useState<string | null>(null);
 
   const loadDoctors = React.useCallback((): void => {
     setLoading(true);
@@ -263,6 +257,7 @@ export default function Page(): React.JSX.Element {
   function openEditDialog(doctor: DoctorResponse): void {
     setEditTarget(doctor);
     setEditError(null);
+    setEditAvailRows([]);
     setEditForm({
       name: doctor.doctor_name ?? '',
       email: doctor.email ?? '',
@@ -280,10 +275,40 @@ export default function Page(): React.JSX.Element {
         .then((result) => setClinics(result.items))
         .catch(() => { /* non-fatal */ });
     }
+    getDoctorAvailability(doctor.id)
+      .then((rows) => {
+        setEditAvailRows(rows.map((r) => ({
+          day_of_week: String(r.day_of_week),
+          start_time: r.start_time,
+          end_time: r.end_time,
+        })));
+      })
+      .catch(() => { /* non-fatal — leave empty */ });
+  }
+
+  function addEditAvailRow(): void {
+    setEditAvailRows((rows) => [...rows, { ...BLANK_AVAIL }]);
+  }
+
+  function removeEditAvailRow(idx: number): void {
+    setEditAvailRows((rows) => rows.filter((_, i) => i !== idx));
+  }
+
+  function setEditAvailField(idx: number, key: keyof AvailabilityRow, value: string): void {
+    setEditAvailRows((rows) =>
+      rows.map((r, i) => (i === idx ? { ...r, [key]: value } : r))
+    );
   }
 
   async function handleEdit(): Promise<void> {
     if (!editTarget) return;
+    // Validate availability rows
+    for (const row of editAvailRows) {
+      if (row.start_time >= row.end_time) {
+        setEditError('Each availability row must have start time before end time.');
+        return;
+      }
+    }
     setEditing(true);
     setEditError(null);
     try {
@@ -299,6 +324,14 @@ export default function Page(): React.JSX.Element {
         consultation_duration_minutes: editForm.consultation_duration_minutes ? Number(editForm.consultation_duration_minutes) : undefined,
         clinic_id: editForm.clinic_id ? Number(editForm.clinic_id) : undefined,
       });
+      await setDoctorAvailability(
+        editTarget.id,
+        editAvailRows.map((r) => ({
+          day_of_week: Number(r.day_of_week),
+          start_time: r.start_time,
+          end_time: r.end_time,
+        }))
+      );
       setEditTarget(null);
       loadDoctors();
     } catch (err: unknown) {
@@ -310,40 +343,6 @@ export default function Page(): React.JSX.Element {
 
   function openBookDialog(doctor: DoctorResponse): void {
     setBookTarget(doctor);
-    setBookSlotId('');
-    setBookReason('');
-    setBookError(null);
-    setBookSlots([]);
-    setBookSlotsLoading(true);
-    getSlots({ doctor_id: doctor.id, limit: 1000 })
-      .then((slots) => { setBookSlots(slots.filter((s) => !s.is_booked && s.is_active)); })
-      .catch(() => { setBookError('Failed to load available slots.'); })
-      .finally(() => { setBookSlotsLoading(false); });
-  }
-
-  async function handleBook(): Promise<void> {
-    if (!bookTarget || !bookSlotId || !user?.id) return;
-    setBookingInProgress(true);
-    setBookError(null);
-    try {
-      const result = await bookAppointment({
-        patient_id: Number(user.id),
-        doctor_id: bookTarget.id,
-        clinic_id: bookTarget.clinic_id,
-        slot_id: Number(bookSlotId),
-        reason_for_visit: bookReason || undefined,
-      });
-      if (result.success) {
-        setBookTarget(null);
-        setSnackbar({ open: true, message: result.message, severity: 'success' });
-      } else {
-        setBookError(result.message);
-      }
-    } catch (err: unknown) {
-      setBookError(err instanceof Error ? err.message : 'Booking failed.');
-    } finally {
-      setBookingInProgress(false);
-    }
   }
 
   return (
@@ -691,6 +690,79 @@ export default function Page(): React.JSX.Element {
               <TextField label="Max Patients / Day" type="number" fullWidth value={editForm.max_patients_per_day} onChange={(e) => { setEditForm((f) => ({ ...f, max_patients_per_day: e.target.value })); }} disabled={editing} inputProps={{ min: 1, max: 100 }} />
               <TextField label="Duration (min)" type="number" fullWidth value={editForm.consultation_duration_minutes} onChange={(e) => { setEditForm((f) => ({ ...f, consultation_duration_minutes: e.target.value })); }} disabled={editing} inputProps={{ min: 5, max: 120 }} />
             </Stack>
+
+            {/* Availability */}
+            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', pt: 1 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Weekly Availability (generates 60-day slots automatically)
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<PlusIcon fontSize="var(--icon-fontSize-sm)" />}
+                onClick={addEditAvailRow}
+                disabled={editing}
+              >
+                Add Day
+              </Button>
+            </Stack>
+
+            {editAvailRows.length > 0 ? (
+              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'var(--mui-palette-background-level1)' }}>
+                      <TableCell>Day</TableCell>
+                      <TableCell>Start Time</TableCell>
+                      <TableCell>End Time</TableCell>
+                      <TableCell />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {editAvailRows.map((row, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell sx={{ minWidth: 140 }}>
+                          <FormControl fullWidth size="small" disabled={editing}>
+                            <Select
+                              value={row.day_of_week}
+                              onChange={(e) => { setEditAvailField(idx, 'day_of_week', String(e.target.value)); }}
+                            >
+                              {DOW_LABELS.map((label, i) => (
+                                <MenuItem key={i} value={String(i)}>{label}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 130 }}>
+                          <TextField
+                            type="time" size="small" fullWidth value={row.start_time}
+                            onChange={(e) => { setEditAvailField(idx, 'start_time', e.target.value); }}
+                            disabled={editing}
+                            inputProps={{ step: 300 }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 130 }}>
+                          <TextField
+                            type="time" size="small" fullWidth value={row.end_time}
+                            onChange={(e) => { setEditAvailField(idx, 'end_time', e.target.value); }}
+                            disabled={editing}
+                            inputProps={{ step: 300 }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <IconButton size="small" color="error" onClick={() => { removeEditAvailRow(idx); }} disabled={editing}>
+                            <MinusCircleIcon fontSize="var(--icon-fontSize-md)" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No availability added. Click “Add Day” to define working hours.
+              </Typography>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -755,127 +827,18 @@ export default function Page(): React.JSX.Element {
         </DialogActions>
       </Dialog>
 
-      {/* ── Book Appointment Dialog (patient) ─────────────────────────────── */}
-      <Dialog
-        open={Boolean(bookTarget)}
-        onClose={() => { if (!bookingInProgress) setBookTarget(null); }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>Book Appointment — {bookTarget?.doctor_name}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            {bookError ? <Typography color="error" variant="body2">{bookError}</Typography> : null}
-
-            {/* Clinic info */}
-            <Typography variant="body2" color="text.secondary">
-              <strong>Clinic:</strong> {bookTarget?.clinic_name ?? '—'}
-            </Typography>
-
-            {/* Week calendar */}
-            {bookSlotsLoading ? (
-              <Typography variant="body2" color="text.secondary">Loading available slots…</Typography>
-            ) : bookSlots.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">No available slots for this doctor. Ask an admin to generate slots.</Typography>
-            ) : (() => {
-              // Group slots by date string (YYYY-MM-DD)
-              const byDay = new Map<string, typeof bookSlots>();
-              for (const s of bookSlots) {
-                const key = dayjs(s.start_time).format('YYYY-MM-DD');
-                if (!byDay.has(key)) byDay.set(key, []);
-                byDay.get(key)!.push(s);
-              }
-              const days = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
-              return (
-                <Box sx={{ overflowX: 'auto' }}>
-                  <Stack direction="row" spacing={1} sx={{ minWidth: days.length * 120 }}>
-                    {days.map(([dateKey, slots]) => (
-                      <Box
-                        key={dateKey}
-                        sx={{
-                          flex: '1 0 110px',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {/* Day header */}
-                        <Box sx={{ bgcolor: 'primary.main', px: 1, py: 0.75, textAlign: 'center' }}>
-                          <Typography variant="caption" sx={{ color: 'primary.contrastText', fontWeight: 700, display: 'block' }}>
-                            {dayjs(dateKey).format('ddd')}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
-                            {dayjs(dateKey).format('MMM D')}
-                          </Typography>
-                        </Box>
-                        {/* Slots */}
-                        <Stack spacing={0.5} sx={{ p: 0.75 }}>
-                          {slots.map((s) => {
-                            const selected = bookSlotId === String(s.id);
-                            return (
-                              <Box
-                                key={s.id}
-                                onClick={() => { if (!bookingInProgress) setBookSlotId(String(s.id)); }}
-                                sx={{
-                                  px: 1,
-                                  py: 0.5,
-                                  borderRadius: 1,
-                                  cursor: 'pointer',
-                                  textAlign: 'center',
-                                  bgcolor: selected ? 'primary.main' : 'action.hover',
-                                  color: selected ? 'primary.contrastText' : 'text.primary',
-                                  border: '1px solid',
-                                  borderColor: selected ? 'primary.dark' : 'transparent',
-                                  '&:hover': { bgcolor: selected ? 'primary.dark' : 'action.selected' },
-                                  transition: 'background-color 0.15s',
-                                }}
-                              >
-                                <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
-                                  {dayjs(s.start_time).format('HH:mm')}
-                                </Typography>
-                                <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
-                                  {dayjs(s.end_time).format('HH:mm')}
-                                </Typography>
-                              </Box>
-                            );
-                          })}
-                        </Stack>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
-              );
-            })()}
-
-            {bookSlotId ? (
-              <Typography variant="body2" color="primary.main">
-                Selected: {(() => { const s = bookSlots.find((x) => String(x.id) === bookSlotId); return s ? `${dayjs(s.start_time).format('ddd, MMM D')} at ${dayjs(s.start_time).format('HH:mm')} – ${dayjs(s.end_time).format('HH:mm')}` : ''; })()}
-              </Typography>
-            ) : null}
-
-            <TextField
-              label="Reason for Visit (optional)"
-              multiline
-              rows={2}
-              fullWidth
-              value={bookReason}
-              onChange={(e) => { setBookReason(e.target.value); }}
-              disabled={bookingInProgress}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setBookTarget(null); }} disabled={bookingInProgress}>Cancel</Button>
-          <Button
-            onClick={() => { void handleBook(); }}
-            variant="contained"
-            disabled={bookingInProgress || !bookSlotId}
-          >
-            {bookingInProgress ? 'Booking…' : 'Book Appointment'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* ── Book Appointment Dialog (patient) — shared BookingDialog component ── */}
+      {bookTarget ? (
+        <BookingDialog
+          doctor={bookTarget}
+          open={Boolean(bookTarget)}
+          onClose={() => { setBookTarget(null); }}
+          onBooked={() => {
+            setBookTarget(null);
+            setSnackbar({ open: true, message: 'Appointment booked successfully!', severity: 'success' });
+          }}
+        />
+      ) : null}
 
       {/* ── Success / Error Snackbar ───────────────────────────────────────── */}
       <Snackbar

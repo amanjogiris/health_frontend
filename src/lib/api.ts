@@ -50,6 +50,7 @@ export interface AvailabilityResponse {
   day_of_week: number;
   start_time: string;
   end_time: string;
+  slot_interval: number;  // minutes per slot (added by dynamic slot system)
 }
 
 export interface DoctorResponse {
@@ -88,6 +89,40 @@ export interface ClinicResponse {
 }
 
 export type SlotStatus = 'available' | 'booked' | 'cancelled' | 'blocked';
+
+// ── Dynamic slot system ────────────────────────────────────────────────────────
+
+export interface DynamicSlotItem {
+  start_time: string;   // ISO-8601 UTC
+  end_time: string;     // ISO-8601 UTC
+  is_available: boolean;
+  duration_minutes: number;
+}
+
+export interface DoctorSlotsResponse {
+  doctor_id: number;
+  date: string;           // YYYY-MM-DD
+  slot_interval_minutes: number;
+  total_slots: number;
+  available_slots: number;
+  slots: DynamicSlotItem[];
+}
+
+export interface DynamicAppointmentResponse {
+  id: number;
+  doctor_id: number;
+  patient_id: number;
+  clinic_id: number;
+  start_time: string;
+  end_time: string;
+  status: string;
+  slots_count: number;
+  reason_for_visit?: string;
+  notes?: string;
+  cancelled_at?: string;
+  cancelled_reason?: string;
+  created_at?: string;
+}
 
 export interface AppointmentSlotResponse {
   id: number;
@@ -547,4 +582,39 @@ export async function updateClinic(
 
 export async function deleteClinic(id: number): Promise<void> {
   return apiFetch<void>(`/api/v1/clinics/${id}`, { method: 'DELETE' });
+}
+
+// ── Dynamic slot & booking ─────────────────────────────────────────────────────
+
+export async function getDynamicSlots(
+  doctorId: number,
+  date: string,           // YYYY-MM-DD
+  onlyAvailable = true,
+): Promise<DoctorSlotsResponse> {
+  const qs = new URLSearchParams({ date, only_available: String(onlyAvailable) });
+  return apiFetch<DoctorSlotsResponse>(`/api/v1/doctors/${doctorId}/dynamic-slots?${qs}`);
+}
+
+export async function bookDynamicSlot(data: {
+  doctor_id: number;
+  patient_id: number;
+  clinic_id: number;
+  start_time: string;    // ISO-8601 UTC
+  slots_requested?: number;
+  reason_for_visit?: string;
+}): Promise<DynamicAppointmentResponse> {
+  return apiFetch<DynamicAppointmentResponse>('/api/v1/appointments/dynamic', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function cancelDynamicAppointment(
+  apptId: number,
+  reason: string,
+): Promise<DynamicAppointmentResponse> {
+  return apiFetch<DynamicAppointmentResponse>(`/api/v1/appointments/dynamic/${apptId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ cancelled_reason: reason }),
+  });
 }
