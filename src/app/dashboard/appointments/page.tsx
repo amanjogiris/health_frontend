@@ -40,16 +40,26 @@ import dayjs from 'dayjs';
 
 import type { UserRole } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
-import type { AppointmentResponse, AppointmentSlotResponse, ClinicResponse, DoctorResponse, PaginatedResponse, PatientResponse } from '@/lib/api';
+import { utcDateTime } from '@/lib/fmt-time';
+import type {
+  AppointmentResponse,
+  AppointmentSlotResponse,
+  ClinicResponse,
+  DoctorResponse,
+  DynamicAppointmentResponse,
+  PaginatedResponse,
+  PatientResponse,
+} from '@/lib/api';
 import {
   bookDynamicSlot,
-  cancelAppointment,
-  getAppointments,
+  cancelDynamicAppointment,
+  getDynamicAppointments,
   updateAppointmentNotes,
   getClinics,
-  getDoctorAppointments,
+  getMyDoctorDynamicAppointments,
   getDoctors,
-  getMyPatientAppointments,
+  getMyDynamicAppointments,
+  getMyPatientProfile,
   getPatients,
   getSlots,
 } from '@/lib/api';
@@ -75,6 +85,26 @@ interface BookForm {
   reason_for_visit: string;
 }
 
+type UnifiedAppointment = AppointmentResponse & { source: 'dynamic' };
+
+function mapDynamicToUnified(appt: DynamicAppointmentResponse): UnifiedAppointment {
+  return {
+    id: appt.id,
+    patient_id: appt.patient_id,
+    doctor_id: appt.doctor_id,
+    clinic_id: appt.clinic_id,
+    slot_id: 0,
+    status: appt.status as AppointmentResponse['status'],
+    reason_for_visit: appt.reason_for_visit,
+    notes: appt.notes,
+    cancelled_at: appt.cancelled_at,
+    cancelled_reason: appt.cancelled_reason,
+    created_at: appt.created_at,
+    slot_time: appt.start_time,
+    source: 'dynamic',
+  };
+}
+
 export default function Page(): React.JSX.Element {
   const { user } = useUser();
   const role = user?.role as UserRole | undefined;
@@ -82,7 +112,7 @@ export default function Page(): React.JSX.Element {
   const isDoctor = role === 'doctor';
   const isPatient = role === 'patient';
 
-  const [appointments, setAppointments] = React.useState<AppointmentResponse[]>([]);
+  const [appointments, setAppointments] = React.useState<UnifiedAppointment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
@@ -92,13 +122,13 @@ export default function Page(): React.JSX.Element {
   const [total, setTotal] = React.useState(0);
 
   // Cancel dialog
-  const [cancelTarget, setCancelTarget] = React.useState<AppointmentResponse | null>(null);
+  const [cancelTarget, setCancelTarget] = React.useState<UnifiedAppointment | null>(null);
   const [cancelReason, setCancelReason] = React.useState('');
   const [cancelling, setCancelling] = React.useState(false);
   const [cancelError, setCancelError] = React.useState<string | null>(null);
 
   // Edit notes (prescription) dialog — doctors only
-  const [notesTarget, setNotesTarget] = React.useState<AppointmentResponse | null>(null);
+  const [notesTarget, setNotesTarget] = React.useState<UnifiedAppointment | null>(null);
   const [notesText, setNotesText] = React.useState('');
   const [savingNotes, setSavingNotes] = React.useState(false);
   const [notesError, setNotesError] = React.useState<string | null>(null);
@@ -113,6 +143,17 @@ export default function Page(): React.JSX.Element {
   const [clinics, setClinics] = React.useState<ClinicResponse[]>([]);
   const [allSlots, setAllSlots] = React.useState<AppointmentSlotResponse[]>([]); // for table id→time lookup
   const [doctorSearch, setDoctorSearch] = React.useState('');
+  // Real patient.id (patients table PK) – needed for correct booking
+  const [myPatientId, setMyPatientId] = React.useState<number | null>(null);
+
+  // Fetch real patient profile ID once on mount (patient role only)
+  React.useEffect(() => {
+    if (isPatient) {
+      getMyPatientProfile()
+        .then((p) => { setMyPatientId(p.id); })
+        .catch(() => { /* non-fatal */ });
+    }
+  }, [isPatient]);
 
   // Patient search (for admin/doctor booking)
   const [patientSearch, setPatientSearch] = React.useState('');
@@ -132,22 +173,43 @@ export default function Page(): React.JSX.Element {
     setLoading(true);
     setError(null);
     if (isPatient) {
-      getMyPatientAppointments()
-        .then((data) => { setAppointments(data); setTotal(data.length); })
-        .catch((err: Error) => { setError(err.message); })
+      getMyDynamicAppointments(0, 1000)
+        .then((dynamic) => {
+          const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
+            .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
+          setAppointments(dynamicOnly);
+          setTotal(dynamicOnly.length);
+        })
+        .catch((err: Error) => {
+          setError(err.message);
+        })
         .finally(() => { setLoading(false); });
     } else if (isDoctor) {
-      getDoctorAppointments(0, 200)
-        .then((data) => { setAppointments(data); setTotal(data.length); })
-        .catch((err: Error) => { setError(err.message); })
+      getMyDoctorDynamicAppointments(0, 1000)
+        .then((dynamic) => {
+          const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
+            .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
+          setAppointments(dynamicOnly);
+          setTotal(dynamicOnly.length);
+        })
+        .catch((err: Error) => {
+          setError(err.message);
+        })
         .finally(() => { setLoading(false); });
     } else {
-      getAppointments(page * rowsPerPage, rowsPerPage, searchQuery || undefined, statusFilter !== 'all' ? statusFilter : undefined)
-        .then((result) => { setAppointments(result.items); setTotal(result.total); })
-        .catch((err: Error) => { setError(err.message); })
+      getDynamicAppointments(0, 1000)
+        .then((dynamic) => {
+          const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
+            .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
+          setAppointments(dynamicOnly);
+          setTotal(dynamicOnly.length);
+        })
+        .catch((err: Error) => {
+          setError(err.message);
+        })
         .finally(() => { setLoading(false); });
     }
-  }, [user, isPatient, isDoctor, page, rowsPerPage, searchQuery, statusFilter]);
+  }, [user, isPatient, isDoctor]);
 
   // Load lookup data (doctors, clinics, slots) once so the table can resolve IDs to names
   React.useEffect((): void => {
@@ -159,26 +221,27 @@ export default function Page(): React.JSX.Element {
   React.useEffect(() => { load(); }, [load]);
 
   // Lookup helpers — prefer enriched fields returned by the backend, fall back to local arrays
-  const doctorName = (appt: AppointmentResponse): string => {
+  const doctorName = (appt: UnifiedAppointment): string => {
     if (appt.doctor_name) return appt.doctor_name;
     const d = doctors.find((x) => x.id === appt.doctor_id);
     return d?.doctor_name ?? `Doctor #${appt.doctor_id}`;
   };
-  const clinicName = (appt: AppointmentResponse): string => {
+  const clinicName = (appt: UnifiedAppointment): string => {
     if (appt.clinic_name) return appt.clinic_name;
     const c = clinics.find((x) => x.id === appt.clinic_id);
     return c?.name ?? `Clinic #${appt.clinic_id}`;
   };
-  const slotTime = (appt: AppointmentResponse): string => {
-    if (appt.slot_time) return dayjs(appt.slot_time).format('MMM D, HH:mm');
+  const slotTime = (appt: UnifiedAppointment): string => {
+    // Use UTC formatter so dynamic-slot times match the doctor's configured hours.
+    if (appt.slot_time) return utcDateTime(appt.slot_time);
     const s = allSlots.find((x) => x.id === appt.slot_id);
     if (!s) return `Slot #${appt.slot_id}`;
-    return dayjs(s.start_time).format('MMM D, HH:mm');
+    return utcDateTime(s.start_time);
   };
 
   // For patient/doctor views: filter and paginate client-side.
   // For admin view: the server already returns the correct page.
-  const clientFiltered = (isPatient || isDoctor) ? appointments.filter((a) => {
+  const clientFiltered = appointments.filter((a) => {
     const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
     const q = searchQuery.trim().toLowerCase();
     if (!q) return matchesStatus;
@@ -192,14 +255,12 @@ export default function Page(): React.JSX.Element {
       slotTime(a).toLowerCase().includes(q) ||
       a.status.toLowerCase().includes(q);
     return matchesStatus && matchesSearch;
-  }) : appointments;
-  const paginated = (isPatient || isDoctor)
-    ? clientFiltered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-    : appointments; // admin: server already gave us the right page
-  const paginationCount = (isPatient || isDoctor) ? clientFiltered.length : total;
+  });
+  const paginated = clientFiltered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const paginationCount = clientFiltered.length;
 
   // ── Cancel helpers ─────────────────────────────────────────────────────────
-  function openCancelDialog(appt: AppointmentResponse): void {
+  function openCancelDialog(appt: UnifiedAppointment): void {
     setCancelTarget(appt);
     setCancelReason('');
     setCancelError(null);
@@ -210,7 +271,7 @@ export default function Page(): React.JSX.Element {
     setCancelling(true);
     setCancelError(null);
     try {
-      await cancelAppointment(cancelTarget.id, cancelReason || 'Cancelled by user');
+      await cancelDynamicAppointment(cancelTarget.id, cancelReason || 'Cancelled by user');
       setCancelTarget(null);
       load();
     } catch (err: unknown) {
@@ -220,11 +281,11 @@ export default function Page(): React.JSX.Element {
     }
   }
 
-  const canCancel = (appt: AppointmentResponse): boolean =>
+  const canCancel = (appt: UnifiedAppointment): boolean =>
     appt.status !== 'cancelled' && (isAdmin || isDoctor || isPatient);
 
   // ── Notes / Prescription helpers (doctor / admin) ──────────────────────────
-  function openNotesDialog(appt: AppointmentResponse): void {
+  function openNotesDialog(appt: UnifiedAppointment): void {
     setNotesTarget(appt);
     setNotesText(appt.notes ?? '');
     setNotesError(null);
@@ -248,7 +309,9 @@ export default function Page(): React.JSX.Element {
 
   // ── Book helpers (admin) ────────────────────────────────────────────────────
   function openBookDialog(): void {
-    setBookForm({ patient_id: isPatient ? String(user?.id ?? '') : '', doctor_id: '', reason_for_visit: '' });
+    // Use the real patients-table ID (myPatientId), not user.id, to ensure
+    // the booking links to the correct patient record.
+    setBookForm({ patient_id: isPatient ? String(myPatientId ?? '') : '', doctor_id: '', reason_for_visit: '' });
     setBookSelectedSlot(null);
     setDoctorSearch('');
     setPatientSearch('');
@@ -295,7 +358,14 @@ export default function Page(): React.JSX.Element {
     setBooking(true);
     setBookError(null);
     try {
-      await bookDynamicSlot({
+      console.log('Booking dynamic slot:', {
+        patient_id: Number(patient_id),
+        doctor_id: Number(doctor_id),
+        clinic_id: doctor.clinic_id,
+        start_time: bookSelectedSlot.start_time,
+        reason_for_visit: bookForm.reason_for_visit,
+      });
+      const result = await bookDynamicSlot({
         patient_id: Number(patient_id),
         doctor_id: Number(doctor_id),
         clinic_id: doctor.clinic_id,
@@ -303,10 +373,13 @@ export default function Page(): React.JSX.Element {
         slots_requested: 1,
         reason_for_visit: bookForm.reason_for_visit || undefined,
       });
+      console.log('Booking result:', result);
       setBookOpen(false);
-      load();
       setSnackbar({ open: true, message: 'Appointment booked successfully.', severity: 'success' });
+      // Give the server a moment to persist, then reload
+      setTimeout(() => { load(); }, 500);
     } catch (err: unknown) {
+      console.error('Booking error:', err);
       setBookError(err instanceof Error ? err.message : 'Failed to book appointment.');
     } finally {
       setBooking(false);
@@ -414,7 +487,7 @@ export default function Page(): React.JSX.Element {
                 paginated.map((appt) => {
                   const cfg = statusConfig[appt.status] ?? { label: appt.status, color: 'default' as const };
                   return (
-                    <TableRow key={appt.id} hover>
+                    <TableRow key={`${appt.source}-${appt.id}`} hover>
                       {isAdmin ? (
                         <TableCell>
                           <Typography variant="body2" fontWeight={600}>
@@ -453,13 +526,6 @@ export default function Page(): React.JSX.Element {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          {(isDoctor || isAdmin) ? (
-                            <Tooltip title="Edit prescription / notes">
-                              <IconButton color="primary" size="small" onClick={() => { openNotesDialog(appt); }}>
-                                <NotePencilIcon fontSize="var(--icon-fontSize-md)" />
-                              </IconButton>
-                            </Tooltip>
-                          ) : null}
                           {canCancel(appt) ? (
                             <Tooltip title="Cancel appointment">
                               <IconButton color="error" size="small" onClick={() => { openCancelDialog(appt); }}>

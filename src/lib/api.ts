@@ -310,6 +310,10 @@ export async function getMyPatientAppointments(skip = 0, limit = 100): Promise<A
   return apiFetch<AppointmentResponse[]>(`/api/v1/patients/me/appointments?skip=${skip}&limit=${limit}`);
 }
 
+export async function getMyPatientProfile(): Promise<PatientResponse> {
+  return apiFetch<PatientResponse>('/api/v1/patients/me');
+}
+
 export async function getPatient(patientId: number): Promise<PatientResponse> {
   return apiFetch<PatientResponse>(`/api/v1/patients/${patientId}`);
 }
@@ -632,6 +636,22 @@ export async function cancelDynamicAppointment(
     method: 'POST',
     body: JSON.stringify({ cancelled_reason: reason }),
   });
+}
+
+export async function getMyDynamicAppointments(skip = 0, limit = 200): Promise<DynamicAppointmentResponse[]> {
+  const result = await apiFetch<DynamicAppointmentResponse[]>(`/api/v1/appointments/dynamic/patients/me?skip=${skip}&limit=${limit}`);
+  console.log(`[API] getMyDynamicAppointments returned ${result.length} appointments`);
+  return result;
+}
+
+export async function getMyDoctorDynamicAppointments(skip = 0, limit = 200): Promise<DynamicAppointmentResponse[]> {
+  const result = await apiFetch<DynamicAppointmentResponse[]>(`/api/v1/appointments/dynamic/doctors/me?skip=${skip}&limit=${limit}`);
+  console.log(`[API] getMyDoctorDynamicAppointments returned ${result.length} appointments`);
+  return result;
+}
+
+export async function getDynamicAppointments(skip = 0, limit = 500): Promise<DynamicAppointmentResponse[]> {
+  return apiFetch<DynamicAppointmentResponse[]>(`/api/v1/appointments/dynamic?skip=${skip}&limit=${limit}`);
 }
 
 // ── Doctor leave / unavailability ────────────────────────────────────────────

@@ -24,18 +24,18 @@ import { CalendarBlankIcon } from '@phosphor-icons/react/dist/ssr/CalendarBlank'
 import { ClockIcon } from '@phosphor-icons/react/dist/ssr/Clock';
 import dayjs, { type Dayjs } from 'dayjs';
 
+import { utcTime } from '@/lib/fmt-time';
+
 import type { AvailabilityResponse, DoctorSlotsResponse, DynamicSlotItem } from '@/lib/api';
 import { getDoctorAvailability } from '@/lib/api';
-
-// ── helpers ────────────────────────────────────────────────────────────────────
 
 function backendDowToDayjs(dow: number): number {
   return (dow + 1) % 7;
 }
 
-function fmtTime(iso: string): string {
-  return dayjs(iso).format('h:mm A');
-}
+// ── helpers ────────────────────────────────────────────────────────────────────
+/** Display slot times in UTC so they match the doctor's configured availability hours. */
+const fmtTime = utcTime;
 
 // ── Component ──────────────────────────────────────────────────────────────────
 

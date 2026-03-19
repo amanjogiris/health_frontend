@@ -25,6 +25,7 @@ import { StethoscopeIcon } from '@phosphor-icons/react/dist/ssr/Stethoscope';
 import { UserIcon } from '@phosphor-icons/react/dist/ssr/User';
 import { XCircleIcon } from '@phosphor-icons/react/dist/ssr/XCircle';
 import dayjs from 'dayjs';
+import { utcDateStr, utcDateTimeLong } from '@/lib/fmt-time';
 import RouterLink from 'next/link';
 
 import type { AppointmentResponse, ClinicResponse, DoctorResponse } from '@/lib/api';
@@ -138,7 +139,7 @@ function AppointmentTable({
                     </TableCell>
                     <TableCell><Chip label={cfg.label} color={cfg.color} size="small" /></TableCell>
                     <TableCell>{appt.reason_for_visit ?? '—'}</TableCell>
-                    <TableCell>{appt.slot_time ? dayjs(appt.slot_time).format('MMM D, YYYY HH:mm') : appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY') : '—'}</TableCell>
+                    <TableCell>{appt.slot_time ? utcDateTimeLong(appt.slot_time) : appt.created_at ? dayjs(appt.created_at).format('MMM D, YYYY') : '—'}</TableCell>
                   </TableRow>
                 );
               })
@@ -221,10 +222,10 @@ function DoctorDashboard(): React.JSX.Element {
       .finally(() => { setLoading(false); });
   }, []);
 
-  const todaysDate = dayjs().format('YYYY-MM-DD');
+  const todaysDate = new Date().toISOString().slice(0, 10);
   const todaysAppts = appointments.filter((a) =>
     a.slot_time
-      ? dayjs(a.slot_time).format('YYYY-MM-DD') === todaysDate
+      ? utcDateStr(a.slot_time) === todaysDate
       : a.created_at
         ? dayjs(a.created_at).format('YYYY-MM-DD') === todaysDate
         : false

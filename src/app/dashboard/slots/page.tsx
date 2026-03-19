@@ -43,6 +43,7 @@ import { PlusIcon } from '@phosphor-icons/react/dist/ssr/Plus';
 import { SparkleIcon } from '@phosphor-icons/react/dist/ssr/Sparkle';
 import { TrashIcon } from '@phosphor-icons/react/dist/ssr/Trash';
 import dayjs from 'dayjs';
+import { utcDate, utcDateTimeLong, utcTime } from '@/lib/fmt-time';
 
 import { RoleGuard } from '@/components/auth/role-guard';
 import type { UserRole } from '@/types/user';
@@ -684,7 +685,7 @@ function SlotsContent(): React.JSX.Element {
   const [snack, setSnack] = React.useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = React.useState<'slots' | 'leaves' | 'availability'>('slots');
+  const [activeTab, setActiveTab] = React.useState<'leaves' | 'availability'>('availability');
 
   // ── Leave state ────────────────────────────────────────────────────────────
   const [leaves, setLeaves] = React.useState<DoctorLeaveResponse[]>([]);
@@ -891,30 +892,11 @@ function SlotsContent(): React.JSX.Element {
         </Stack>
         <Stack direction="row" spacing={1}>
           <Tooltip title="Refresh">
-            <IconButton onClick={() => { void (activeTab === 'slots' ? fetchSlots() : activeTab === 'leaves' ? fetchLeaves() : fetchAvailability()); }}>
+            <IconButton onClick={() => { void (activeTab === 'leaves' ? fetchLeaves() : fetchAvailability()); }}>
               <ArrowClockwiseIcon />
             </IconButton>
           </Tooltip>
-          {activeTab === 'slots' ? (
-            <>
-              {!isDoctor ? (
-                <Button
-                  variant="outlined"
-                  startIcon={<SparkleIcon />}
-                  onClick={() => { setGenerateOpen(true); }}
-                >
-                  Generate Slots
-                </Button>
-              ) : null}
-              <Button
-                variant="contained"
-                startIcon={<PlusIcon />}
-                onClick={() => { setCreateOpen(true); }}
-              >
-                Add Slot
-              </Button>
-            </>
-          ) : activeTab === 'leaves' ? (
+          {activeTab === 'leaves' ? (
             <Button
               variant="contained"
               color="warning"
@@ -941,15 +923,14 @@ function SlotsContent(): React.JSX.Element {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onChange={(_, v: 'slots' | 'leaves' | 'availability') => { setActiveTab(v); }}
+        onChange={(_, v: 'leaves' | 'availability') => { setActiveTab(v); }}
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
-        <Tab value="slots" label="Slots" icon={<ClockIcon size={16} />} iconPosition="start" />
         <Tab value="leaves" label="Leave Management" icon={<CalendarXIcon size={16} />} iconPosition="start" />
         <Tab value="availability" label="Availability" icon={<CalendarCheckIcon size={16} />} iconPosition="start" />
       </Tabs>
 
-      {activeTab === 'slots' ? (
+      {false ? (
         <>
       {/* Filters */}
       <Card sx={{ p: 2 }}>
@@ -1052,20 +1033,20 @@ function SlotsContent(): React.JSX.Element {
           </Box>
         ) : (
           <>
-            <Box sx={{ overflowX: 'auto' }}>
-              <Table size="small">
+            <Box sx={{ overflowX: 'auto', width: '100%' }}>
+              <Table size="small" sx={{ minWidth: 1200 }}>
                 <TableHead>
-                  <TableRow>
-                    <TableCell>ID</TableCell>
-                    <TableCell>Doctor</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Start</TableCell>
-                    <TableCell>End</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Booked</TableCell>
-                    <TableCell>Capacity</TableCell>
-                    <TableCell>Active</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                    <TableCell sx={{ fontWeight: 600, width: '5%' }}>ID</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '12%' }}>Doctor</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '12%' }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '10%' }}>Start</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '10%' }}>End</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '10%' }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '8%' }} align="center">Booked</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '8%' }} align="center">Capacity</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '8%' }} align="center">Active</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: '12%' }} align="right">Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1082,20 +1063,20 @@ function SlotsContent(): React.JSX.Element {
                       const cfg = STATUS_CONFIG[slot.status] ?? STATUS_CONFIG.available;
                       const dateStr = slot.date
                         ? dayjs(slot.date).format('MMM D, YYYY')
-                        : dayjs(slot.start_time).format('MMM D, YYYY');
+                        : utcDate(slot.start_time);
                       return (
                         <TableRow key={slot.id} hover sx={{ opacity: slot.is_active ? 1 : 0.5 }}>
                           <TableCell>#{slot.id}</TableCell>
                           <TableCell>{getDoctorName(slot.doctor_id)}</TableCell>
                           <TableCell>{dateStr}</TableCell>
-                          <TableCell>{dayjs(slot.start_time).format('h:mm A')}</TableCell>
-                          <TableCell>{dayjs(slot.end_time).format('h:mm A')}</TableCell>
+                          <TableCell>{utcTime(slot.start_time)}</TableCell>
+                          <TableCell>{utcTime(slot.end_time)}</TableCell>
                           <TableCell>
                             <Chip label={cfg.label} color={cfg.color} size="small" />
                           </TableCell>
-                          <TableCell>{slot.booked_count}</TableCell>
-                          <TableCell>{slot.capacity}</TableCell>
-                          <TableCell>
+                          <TableCell align="center">{slot.booked_count}</TableCell>
+                          <TableCell align="center">{slot.capacity}</TableCell>
+                          <TableCell align="center">
                             <Tooltip title={slot.is_active ? 'Click to deactivate' : 'Click to activate'}>
                               <Switch
                                 size="small"
@@ -1193,9 +1174,9 @@ function SlotsContent(): React.JSX.Element {
         <DialogContent>
           {deleteError ? <Alert severity="error" sx={{ mb: 1 }}>{deleteError}</Alert> : null}
           <Typography variant="body2">
-            {dayjs(deleteTarget?.start_time).format('MMM D, YYYY h:mm A')}
+            {utcDateTimeLong(deleteTarget?.start_time)}
             {' → '}
-            {dayjs(deleteTarget?.end_time).format('h:mm A')}
+            {utcTime(deleteTarget?.end_time)}
           </Typography>
           <Typography variant="body2" color="text.secondary">This action cannot be undone.</Typography>
         </DialogContent>

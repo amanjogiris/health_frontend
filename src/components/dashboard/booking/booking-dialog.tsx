@@ -39,10 +39,11 @@ import { CalendarBlankIcon } from '@phosphor-icons/react/dist/ssr/CalendarBlank'
 import { ClockIcon } from '@phosphor-icons/react/dist/ssr/Clock';
 import { XIcon } from '@phosphor-icons/react/dist/ssr/X';
 import dayjs, { type Dayjs } from 'dayjs';
+import { utcTime } from '@/lib/fmt-time';
 
 import { useUser } from '@/hooks/use-user';
 import type { AvailabilityResponse, DoctorResponse, DoctorSlotsResponse, DynamicSlotItem } from '@/lib/api';
-import { bookDynamicSlot, getDoctorAvailability } from '@/lib/api';
+import { bookDynamicSlot } from '@/lib/api';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -56,9 +57,8 @@ function doctorInitials(name?: string): string {
   return name.split(' ').slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
-function fmtTime(iso: string): string {
-  return dayjs(iso).format('h:mm A');
-}
+/** Display slot times in UTC so they match the doctor's configured availability hours. */
+const fmtTime = utcTime;
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,19 @@ export function BookingDialog({
     setReason('');
     setBookError(null);
     setAvailLoading(true);
-    getDoctorAvailability(doctor.id)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('custom-auth-token') : null;
+    const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/doctors/${doctor.id}/availability?_ts=${Date.now()}`;
+    fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Failed to load availability' }));
+          throw new Error((err as { detail?: string }).detail ?? 'Failed to load availability');
+        }
+        return res.json() as Promise<AvailabilityResponse[]>;
+      })
       .then(setAvailability)
       .catch(() => setAvailability([]))
       .finally(() => setAvailLoading(false));
@@ -126,8 +138,11 @@ export function BookingDialog({
 
     const dateStr = selectedDate.format('YYYY-MM-DD');
     const token = typeof window !== 'undefined' ? localStorage.getItem('custom-auth-token') : null;
-    const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/doctors/${doctor.id}/dynamic-slots?date=${dateStr}&only_available=false`;
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/doctors/${doctor.id}/dynamic-slots?date=${dateStr}&only_available=false&_ts=${Date.now()}`;
+    fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: 'Failed to load slots' }));
