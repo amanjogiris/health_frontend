@@ -28,13 +28,14 @@ import dayjs from 'dayjs';
 import { utcDateStr, utcDateTimeLong } from '@/lib/fmt-time';
 import RouterLink from 'next/link';
 
-import type { AppointmentResponse, ClinicResponse, DoctorResponse } from '@/lib/api';
+import type { AppointmentResponse, ClinicResponse, DoctorResponse, DynamicAppointmentResponse } from '@/lib/api';
 import {
   getAppointments,
   getClinics,
   getDoctors,
   getDoctorAppointments,
   getDoctorProfile,
+  getDynamicAppointments,
   getPatientAppointments,
 } from '@/lib/api';
 import type { UserRole } from '@/types/user';

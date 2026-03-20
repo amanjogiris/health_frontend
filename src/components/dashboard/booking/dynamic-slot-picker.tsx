@@ -214,20 +214,23 @@ export function DynamicSlotPicker({ doctorId, onSlotChange }: DynamicSlotPickerP
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, maxHeight: 200, overflowY: 'auto' }}>
                 {slotsData.slots.map((slot) => {
                   const isSelected = selectedSlot?.start_time === slot.start_time;
+                  const isPast = dayjs(slot.start_time).isBefore(dayjs());
+                  const isDisabled = !slot.is_available || isPast;
+                  const tooltipTitle = !slot.is_available ? 'Already booked' : isPast ? 'This slot has already passed' : '';
                   return (
                     <Tooltip
                       key={slot.start_time}
-                      title={slot.is_available ? '' : 'Already booked'}
-                      disableHoverListener={slot.is_available}
+                      title={tooltipTitle}
+                      disableHoverListener={!isDisabled}
                     >
                       <span>
                         <Chip
                           label={fmtTime(slot.start_time)}
-                          clickable={slot.is_available}
-                          disabled={!slot.is_available}
-                          onClick={slot.is_available ? () => { selectSlot(slot); } : undefined}
+                          clickable={!isDisabled}
+                          disabled={isDisabled}
+                          onClick={!isDisabled ? () => { selectSlot(slot); } : undefined}
                           variant={isSelected ? 'filled' : 'outlined'}
-                          color={isSelected ? 'primary' : slot.is_available ? 'success' : 'default'}
+                          color={isSelected ? 'primary' : !isDisabled ? 'success' : 'default'}
                           size="small"
                           sx={{ fontWeight: 600 }}
                         />
