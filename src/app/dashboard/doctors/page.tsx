@@ -465,11 +465,7 @@ export default function Page(): React.JSX.Element {
                             <PencilSimpleIcon fontSize="var(--icon-fontSize-md)" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Generate slots for future weeks">
-                          <IconButton color="success" size="small" onClick={() => { setGenTarget(doctor); setGenWeeks('8'); setGenError(null); }}>
-                            <ArrowClockwiseIcon fontSize="var(--icon-fontSize-md)" />
-                          </IconButton>
-                        </Tooltip>
+                        
                         <Tooltip title="Delete doctor">
                           <IconButton color="error" size="small" onClick={() => { setDeleteTarget(doctor); }}>
                             <TrashIcon fontSize="var(--icon-fontSize-md)" />

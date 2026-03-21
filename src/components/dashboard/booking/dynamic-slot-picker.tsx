@@ -202,43 +202,60 @@ export function DynamicSlotPicker({ doctorId, onSlotChange }: DynamicSlotPickerP
             </Stack>
           ) : slotsError ? (
             <Alert severity="error" sx={{ mt: 1 }}>{slotsError}</Alert>
-          ) : slotsData && slotsData.slots.filter((s) => s.is_available).length === 0 ? (
-            <Alert severity="warning" sx={{ mt: 1 }}>
-              All slots on this date are booked. Choose another day.
-            </Alert>
-          ) : slotsData ? (
-            <>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                {slotsData.available_slots} / {slotsData.total_slots} available
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, maxHeight: 200, overflowY: 'auto' }}>
-                {slotsData.slots.map((slot) => {
-                  const isSelected = selectedSlot?.start_time === slot.start_time;
-                  const isPast = dayjs(slot.start_time).isBefore(dayjs());
-                  const isDisabled = !slot.is_available || isPast;
-                  const tooltipTitle = !slot.is_available ? 'Already booked' : isPast ? 'This slot has already passed' : '';
-                  return (
-                    <Tooltip
-                      key={slot.start_time}
-                      title={tooltipTitle}
-                      disableHoverListener={!isDisabled}
-                    >
-                      <span>
-                        <Chip
-                          label={fmtTime(slot.start_time)}
-                          clickable={!isDisabled}
-                          disabled={isDisabled}
-                          onClick={!isDisabled ? () => { selectSlot(slot); } : undefined}
-                          variant={isSelected ? 'filled' : 'outlined'}
-                          color={isSelected ? 'primary' : !isDisabled ? 'success' : 'default'}
-                          size="small"
-                          sx={{ fontWeight: 600 }}
-                        />
-                      </span>
-                    </Tooltip>
-                  );
-                })}
-              </Box>
+          ) : slotsData ? (() => {
+              // Slots are stored as "IST time in UTC field" (e.g. 10:00Z means 10:00 AM IST).
+              // Shift now by +5:30 so it lives in the same coordinate space as the stored slot times.
+              const IST_OFFSET_MINUTES = 330; // UTC+5:30
+              const now = dayjs().add(IST_OFFSET_MINUTES, 'minute');
+              const visibleSlots = slotsData.slots.filter((s) => !dayjs(s.start_time).isBefore(now));
+              const visibleAvailable = visibleSlots.filter((s) => s.is_available).length;
+
+              if (visibleSlots.length === 0) {
+                return (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    No more slots available for today. Please choose another day.
+                  </Alert>
+                );
+              }
+              if (visibleAvailable === 0) {
+                return (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    All remaining slots on this date are booked. Choose another day.
+                  </Alert>
+                );
+              }
+              return (
+                <>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    {visibleAvailable} of {visibleSlots.length} remaining slots available
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, maxHeight: 200, overflowY: 'auto' }}>
+                    {visibleSlots.map((slot) => {
+                      const isSelected = selectedSlot?.start_time === slot.start_time;
+                      const isDisabled = !slot.is_available;
+                      const tooltipTitle = !slot.is_available ? 'Already booked' : '';
+                      return (
+                        <Tooltip
+                          key={slot.start_time}
+                          title={tooltipTitle}
+                          disableHoverListener={!isDisabled}
+                        >
+                          <span>
+                            <Chip
+                              label={fmtTime(slot.start_time)}
+                              clickable={!isDisabled}
+                              disabled={isDisabled}
+                              onClick={!isDisabled ? () => { selectSlot(slot); } : undefined}
+                              variant={isSelected ? 'filled' : 'outlined'}
+                              color={isSelected ? 'primary' : !isDisabled ? 'success' : 'default'}
+                              size="small"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          </span>
+                        </Tooltip>
+                      );
+                    })}
+                  </Box>
               {selectedSlot ? (
                 <Box
                   sx={{
@@ -256,8 +273,9 @@ export function DynamicSlotPicker({ doctorId, onSlotChange }: DynamicSlotPickerP
                   </Typography>
                 </Box>
               ) : null}
-            </>
-          ) : null}
+                </>
+              );
+            })() : null}
         </Box>
       </Stack>
     </Stack>

@@ -293,117 +293,138 @@ export function BookingDialog({
                 </Stack>
               ) : slotsError ? (
                 <Alert severity="error">{slotsError}</Alert>
-              ) : slotsData && slotsData.slots.filter((s) => s.is_available).length === 0 ? (
-                <Alert severity="warning">
-                  All slots on this date are fully booked. Please choose another day.
-                </Alert>
-              ) : slotsData ? (
-                <>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                    {slotsData.available_slots} of {slotsData.total_slots} slots available
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 1,
-                      mb: 3,
-                      maxHeight: 180,
-                      overflowY: 'auto',
-                      pr: 0.5,
-                    }}
-                  >
-                    {slotsData.slots.map((slot) => {
-                      const isSelected = selectedSlot?.start_time === slot.start_time;
-                      const isPast = dayjs(slot.start_time).isBefore(dayjs());
-                      const isDisabled = !slot.is_available || isPast;
-                      const tooltipTitle = !slot.is_available ? 'Already booked' : isPast ? 'This slot has already passed' : '';
-                      return (
-                        <Tooltip
-                          key={slot.start_time}
-                          title={tooltipTitle}
-                          disableHoverListener={!isDisabled}
-                        >
-                          <span>
-                            <Chip
-                              label={fmtTime(slot.start_time)}
-                              clickable={!isDisabled}
-                              disabled={isDisabled}
-                              onClick={
-                                !isDisabled
-                                  ? () => { setSelectedSlot(slot); setBookError(null); }
-                                  : undefined
-                              }
-                              variant={isSelected ? 'filled' : 'outlined'}
-                              color={isSelected ? 'primary' : !isDisabled ? 'success' : 'default'}
-                              size="medium"
-                              sx={{
-                                fontWeight: 600,
-                                fontSize: '0.8rem',
-                                ...(isSelected && { boxShadow: '0 0 0 3px rgba(99,102,241,0.25)' }),
-                              }}
-                            />
-                          </span>
-                        </Tooltip>
-                      );
-                    })}
-                  </Box>
+              ) : slotsData ? (() => {
+                  // Slots are stored as "IST time in UTC field" (e.g. 10:00Z means 10:00 AM IST).
+                  // To correctly detect past slots we shift now forward by the IST offset (+5:30)
+                  // so it lives in the same coordinate space as the stored slot times.
+                  const IST_OFFSET_MINUTES = 330; // UTC+5:30
+                  const now = dayjs().add(IST_OFFSET_MINUTES, 'minute');
+                  const visibleSlots = slotsData.slots.filter((s) => !dayjs(s.start_time).isBefore(now));
+                  const visibleAvailable = visibleSlots.filter((s) => s.is_available).length;
 
-                  {selectedSlot ? (
-                    <Box
-                      sx={{
-                        bgcolor: 'primary.50',
-                        border: '1px solid',
-                        borderColor: 'primary.200',
-                        borderRadius: 2,
-                        p: 1.5,
-                        mb: 2,
-                      }}
-                    >
-                      <Typography variant="body2" fontWeight={600} color="primary.main">
-                        Selected: {selectedDate.format('MMM D')} at {fmtTime(selectedSlot.start_time)}
-                        {' → '}
-                        {fmtTime(selectedSlot.end_time)}
+                  if (visibleSlots.length === 0) {
+                    return (
+                      <Alert severity="warning">
+                        No more slots available for today. Please choose another day.
+                      </Alert>
+                    );
+                  }
+
+                  if (visibleAvailable === 0) {
+                    return (
+                      <Alert severity="warning">
+                        All remaining slots on this date are fully booked. Please choose another day.
+                      </Alert>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                        {visibleAvailable} of {visibleSlots.length} remaining slots available
                       </Typography>
-                    </Box>
-                  ) : null}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 1,
+                          mb: 3,
+                          maxHeight: 180,
+                          overflowY: 'auto',
+                          pr: 0.5,
+                        }}
+                      >
+                        {visibleSlots.map((slot) => {
+                          const isSelected = selectedSlot?.start_time === slot.start_time;
+                          const isDisabled = !slot.is_available;
+                          const tooltipTitle = !slot.is_available ? 'Already booked' : '';
+                          return (
+                            <Tooltip
+                              key={slot.start_time}
+                              title={tooltipTitle}
+                              disableHoverListener={!isDisabled}
+                            >
+                              <span>
+                                <Chip
+                                  label={fmtTime(slot.start_time)}
+                                  clickable={!isDisabled}
+                                  disabled={isDisabled}
+                                  onClick={
+                                    !isDisabled
+                                      ? () => { setSelectedSlot(slot); setBookError(null); }
+                                      : undefined
+                                  }
+                                  variant={isSelected ? 'filled' : 'outlined'}
+                                  color={isSelected ? 'primary' : !isDisabled ? 'success' : 'default'}
+                                  size="medium"
+                                  sx={{
+                                    fontWeight: 600,
+                                    fontSize: '0.8rem',
+                                    ...(isSelected && { boxShadow: '0 0 0 3px rgba(99,102,241,0.25)' }),
+                                  }}
+                                />
+                              </span>
+                            </Tooltip>
+                          );
+                        })}
+                      </Box>
 
-                  <TextField
-                    label="Reason for visit (optional)"
-                    placeholder="e.g. Annual checkup, follow-up, consultation…"
-                    fullWidth
-                    multiline
-                    minRows={2}
-                    size="small"
-                    value={reason}
-                    onChange={(e) => { setReason(e.target.value); }}
-                    sx={{ mb: 2 }}
-                    disabled={!selectedSlot}
-                  />
+                      {selectedSlot ? (
+                        <Box
+                          sx={{
+                            bgcolor: 'primary.50',
+                            border: '1px solid',
+                            borderColor: 'primary.200',
+                            borderRadius: 2,
+                            p: 1.5,
+                            mb: 2,
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight={600} color="primary.main">
+                            Selected: {selectedDate.format('MMM D')} at {fmtTime(selectedSlot.start_time)}
+                            {' → '}
+                            {fmtTime(selectedSlot.end_time)}
+                          </Typography>
+                        </Box>
+                      ) : null}
 
-                  {bookError ? <Alert severity="error" sx={{ mb: 2 }}>{bookError}</Alert> : null}
+                      <TextField
+                        label="Reason for visit (optional)"
+                        placeholder="e.g. Annual checkup, follow-up, consultation…"
+                        fullWidth
+                        multiline
+                        minRows={2}
+                        size="small"
+                        value={reason}
+                        onChange={(e) => { setReason(e.target.value); }}
+                        sx={{ mb: 2 }}
+                        disabled={!selectedSlot}
+                      />
 
-                  <Button
-                    variant="contained"
-                    size="large"
-                    fullWidth
-                    disabled={!selectedSlot || booking}
-                    onClick={() => { void handleBook(); }}
-                    sx={{ borderRadius: 2, fontWeight: 700 }}
-                  >
-                    {booking ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CircularProgress size={16} color="inherit" />
-                        <span>Booking…</span>
-                      </Stack>
-                    ) : selectedSlot ? (
-                      `Confirm Booking · ${selectedDate.format('MMM D')} at ${fmtTime(selectedSlot.start_time)}`
-                    ) : (
-                      'Select a time slot above'
-                    )}
-                  </Button>
-                </>
-              ) : null}
+                      {bookError ? <Alert severity="error" sx={{ mb: 2 }}>{bookError}</Alert> : null}
+
+                      <Button
+                        variant="contained"
+                        size="large"
+                        fullWidth
+                        disabled={!selectedSlot || booking}
+                        onClick={() => { void handleBook(); }}
+                        sx={{ borderRadius: 2, fontWeight: 700 }}
+                      >
+                        {booking ? (
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CircularProgress size={16} color="inherit" />
+                            <span>Booking…</span>
+                          </Stack>
+                        ) : selectedSlot ? (
+                          `Confirm Booking · ${selectedDate.format('MMM D')} at ${fmtTime(selectedSlot.start_time)}`
+                        ) : (
+                          'Select a time slot above'
+                        )}
+                      </Button>
+                    </>
+                  );
+                })() : null}
             </Box>
           </Stack>
         )}
