@@ -101,6 +101,7 @@ function mapDynamicToUnified(appt: DynamicAppointmentResponse): UnifiedAppointme
     cancelled_reason: appt.cancelled_reason,
     created_at: appt.created_at,
     slot_time: appt.start_time,
+    patient_name: appt.patient_name,
     source: 'dynamic',
   };
 }

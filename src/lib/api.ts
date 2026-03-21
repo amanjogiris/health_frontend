@@ -123,6 +123,7 @@ export interface DynamicAppointmentResponse {
   cancelled_at?: string;
   cancelled_reason?: string;
   created_at?: string;
+  patient_name?: string;
 }
 
 export interface AppointmentSlotResponse {

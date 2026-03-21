@@ -30,14 +30,32 @@ import RouterLink from 'next/link';
 
 import type { AppointmentResponse, ClinicResponse, DoctorResponse, DynamicAppointmentResponse } from '@/lib/api';
 import {
-  getAppointments,
   getClinics,
   getDoctors,
-  getDoctorAppointments,
   getDoctorProfile,
   getDynamicAppointments,
-  getPatientAppointments,
+  getMyDoctorDynamicAppointments,
+  getMyDynamicAppointments,
 } from '@/lib/api';
+
+/** Convert a DynamicAppointmentResponse into the AppointmentResponse shape expected by shared components. */
+function mapDynamic(a: DynamicAppointmentResponse): AppointmentResponse {
+  return {
+    id: a.id,
+    patient_id: a.patient_id,
+    doctor_id: a.doctor_id,
+    clinic_id: a.clinic_id,
+    slot_id: 0,
+    status: a.status as AppointmentResponse['status'],
+    reason_for_visit: a.reason_for_visit,
+    notes: a.notes,
+    cancelled_at: a.cancelled_at,
+    cancelled_reason: a.cancelled_reason,
+    created_at: a.created_at,
+    slot_time: a.start_time,
+    patient_name: a.patient_name,
+  };
+}
 import type { UserRole } from '@/types/user';
 import { ROLE_LABELS } from '@/types/user';
 import { useUser } from '@/hooks/use-user';
@@ -162,8 +180,8 @@ function PatientDashboard({ userId }: { userId: number }): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [appts, docs] = await Promise.all([getPatientAppointments(userId), getDoctors({ skip: 0, limit: 200 })]);
-        setAppointments(appts);
+        const [dynamic, docs] = await Promise.all([getMyDynamicAppointments(0, 500), getDoctors({ skip: 0, limit: 200 })]);
+        setAppointments(dynamic.map(mapDynamic));
         setDoctors(docs.items);
       } catch { /* noop */ } finally { setLoading(false); }
     }
@@ -217,8 +235,8 @@ function DoctorDashboard(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    Promise.all([getDoctorProfile(), getDoctorAppointments()])
-      .then(([doc, appts]) => { setDoctor(doc); setAppointments(appts); })
+    Promise.all([getDoctorProfile(), getMyDoctorDynamicAppointments(0, 500)])
+      .then(([doc, dynamic]) => { setDoctor(doc); setAppointments(dynamic.map(mapDynamic)); })
       .catch(() => { /* noop */ })
       .finally(() => { setLoading(false); });
   }, []);
@@ -288,9 +306,13 @@ function AdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins] = await Promise.all([getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 })]);
+        const [docs, clins, dynamic] = await Promise.all([
+          getDoctors({ skip: 0, limit: 200 }),
+          getClinics({ skip: 0, limit: 200 }),
+          getDynamicAppointments(0, 1000),
+        ]);
         setDoctors(docs.items); setClinics(clins.items);
-        try { setAppointments((await getAppointments(0, 200)).items); } catch { /* admin-only */ }
+        setAppointments(dynamic.map(mapDynamic));
       } finally { setLoading(false); }
     }
     void load();
@@ -483,9 +505,13 @@ function SuperAdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins] = await Promise.all([getDoctors({ skip: 0, limit: 200 }), getClinics({ skip: 0, limit: 200 })]);
+        const [docs, clins, dynamic] = await Promise.all([
+          getDoctors({ skip: 0, limit: 200 }),
+          getClinics({ skip: 0, limit: 200 }),
+          getDynamicAppointments(0, 1000),
+        ]);
         setDoctors(docs.items); setClinics(clins.items);
-        try { setAppointments((await getAppointments(0, 200)).items); } catch { /* noop */ }
+        setAppointments(dynamic.map(mapDynamic));
       } finally { setLoading(false); }
     }
     void load();
