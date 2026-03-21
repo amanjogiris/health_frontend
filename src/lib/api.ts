@@ -22,7 +22,18 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(err.detail ?? 'Request failed');
+    const detail = (err as { detail?: unknown }).detail;
+    if (typeof detail === 'string') {
+      throw new Error(detail);
+    }
+    if (Array.isArray(detail)) {
+      const first = detail[0] as { msg?: string } | undefined;
+      throw new Error(first?.msg ?? 'Request failed');
+    }
+    if (detail && typeof detail === 'object') {
+      throw new Error(JSON.stringify(detail));
+    }
+    throw new Error('Request failed');
   }
 
   if (res.status === 204) return undefined as T;
@@ -637,6 +648,16 @@ export async function cancelDynamicAppointment(
     method: 'POST',
     body: JSON.stringify({ cancelled_reason: reason }),
   });
+}
+
+export async function updateDynamicAppointmentStatus(
+  apptId: number,
+  status: string,
+): Promise<DynamicAppointmentResponse> {
+  return apiFetch<DynamicAppointmentResponse>(
+    `/api/v1/appointments/dynamic/${apptId}/status?status=${encodeURIComponent(status)}`,
+    { method: 'PATCH' },
+  );
 }
 
 export async function getMyDynamicAppointments(skip = 0, limit = 200): Promise<DynamicAppointmentResponse[]> {

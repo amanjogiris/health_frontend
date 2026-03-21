@@ -306,21 +306,31 @@ function AdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins, dynamic] = await Promise.all([
+        const [docsRes, clinsRes, dynamicRes] = await Promise.allSettled([
           getDoctors({ skip: 0, limit: 200 }),
           getClinics({ skip: 0, limit: 200 }),
-          getDynamicAppointments(0, 1000),
+          getDynamicAppointments(0, 200),
         ]);
-        setDoctors(docs.items); setClinics(clins.items);
-        setAppointments(dynamic.map(mapDynamic));
+
+        if (docsRes.status === 'fulfilled') {
+          setDoctors(docsRes.value.items);
+        }
+        if (clinsRes.status === 'fulfilled') {
+          setClinics(clinsRes.value.items);
+        }
+        if (dynamicRes.status === 'fulfilled') {
+          setAppointments(dynamicRes.value.map(mapDynamic));
+        }
       } finally { setLoading(false); }
     }
     void load();
   }, []);
 
   const statusCounts = React.useMemo(() => {
-    const c: Record<string, number> = { booked: 0, cancelled: 0 };
-    appointments.forEach((a) => { if (c[a.status] !== undefined) c[a.status]++; });
+    const c: Record<string, number> = Object.fromEntries(
+      Object.keys(statusConfig).map((status) => [status, 0])
+    ) as Record<string, number>;
+    appointments.forEach((a) => { c[a.status] = (c[a.status] ?? 0) + 1; });
     return c;
   }, [appointments]);
 
@@ -382,7 +392,7 @@ function AdminDashboard(): React.JSX.Element {
           <Divider />
           <CardContent>
             <Stack spacing={2}>
-              {Object.entries(statusCounts).map(([status, count]) => {
+              {Object.entries(statusCounts).filter(([status]) => status === 'booked' || status === 'cancelled').map(([status, count]) => {
                 const cfg = statusConfig[status];
                 const pct = appointments.length > 0 ? Math.round((count / appointments.length) * 100) : 0;
                 return (
@@ -505,13 +515,21 @@ function SuperAdminDashboard(): React.JSX.Element {
   React.useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const [docs, clins, dynamic] = await Promise.all([
+        const [docsRes, clinsRes, dynamicRes] = await Promise.allSettled([
           getDoctors({ skip: 0, limit: 200 }),
           getClinics({ skip: 0, limit: 200 }),
-          getDynamicAppointments(0, 1000),
+          getDynamicAppointments(0, 200),
         ]);
-        setDoctors(docs.items); setClinics(clins.items);
-        setAppointments(dynamic.map(mapDynamic));
+
+        if (docsRes.status === 'fulfilled') {
+          setDoctors(docsRes.value.items);
+        }
+        if (clinsRes.status === 'fulfilled') {
+          setClinics(clinsRes.value.items);
+        }
+        if (dynamicRes.status === 'fulfilled') {
+          setAppointments(dynamicRes.value.map(mapDynamic));
+        }
       } finally { setLoading(false); }
     }
     void load();

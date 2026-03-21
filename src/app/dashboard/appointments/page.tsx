@@ -33,6 +33,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/ssr/ArrowClockwise';
 import { CalendarPlusIcon } from '@phosphor-icons/react/dist/ssr/CalendarPlus';
+import { CheckCircleIcon } from '@phosphor-icons/react/dist/ssr/CheckCircle';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/ssr/MagnifyingGlass';
 import { NotePencilIcon } from '@phosphor-icons/react/dist/ssr/NotePencil';
 import { XCircleIcon } from '@phosphor-icons/react/dist/ssr/XCircle';
@@ -55,6 +56,7 @@ import {
   cancelDynamicAppointment,
   getDynamicAppointments,
   updateAppointmentNotes,
+  updateDynamicAppointmentStatus,
   getClinics,
   getMyDoctorDynamicAppointments,
   getDoctors,
@@ -134,6 +136,12 @@ export default function Page(): React.JSX.Element {
   const [savingNotes, setSavingNotes] = React.useState(false);
   const [notesError, setNotesError] = React.useState<string | null>(null);
 
+  // Status-change dialog (admin / doctor)
+  const [statusTarget, setStatusTarget] = React.useState<UnifiedAppointment | null>(null);
+  const [newStatus, setNewStatus] = React.useState<string>('');
+  const [changingStatus, setChangingStatus] = React.useState(false);
+  const [statusError, setStatusError] = React.useState<string | null>(null);
+
   // Book dialog
   const [bookOpen, setBookOpen] = React.useState(false);
   const [booking, setBooking] = React.useState(false);
@@ -174,7 +182,7 @@ export default function Page(): React.JSX.Element {
     setLoading(true);
     setError(null);
     if (isPatient) {
-      getMyDynamicAppointments(0, 1000)
+      getMyDynamicAppointments(0, 200)
         .then((dynamic) => {
           const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
             .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
@@ -186,7 +194,7 @@ export default function Page(): React.JSX.Element {
         })
         .finally(() => { setLoading(false); });
     } else if (isDoctor) {
-      getMyDoctorDynamicAppointments(0, 1000)
+      getMyDoctorDynamicAppointments(0, 200)
         .then((dynamic) => {
           const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
             .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
@@ -198,7 +206,7 @@ export default function Page(): React.JSX.Element {
         })
         .finally(() => { setLoading(false); });
     } else {
-      getDynamicAppointments(0, 1000)
+      getDynamicAppointments(0, 200)
         .then((dynamic) => {
           const dynamicOnly = [...dynamic.map(mapDynamicToUnified)]
             .sort((a, b) => dayjs(b.slot_time ?? b.created_at).valueOf() - dayjs(a.slot_time ?? a.created_at).valueOf());
@@ -284,6 +292,29 @@ export default function Page(): React.JSX.Element {
 
   const canCancel = (appt: UnifiedAppointment): boolean =>
     appt.status !== 'cancelled' && (isAdmin || isDoctor || isPatient);
+
+  // ── Status-change helpers (admin / doctor) ─────────────────────────────────
+  function openStatusDialog(appt: UnifiedAppointment): void {
+    setStatusTarget(appt);
+    setNewStatus(appt.status === 'booked' ? 'completed' : 'booked');
+    setStatusError(null);
+  }
+
+  async function handleStatusChange(): Promise<void> {
+    if (!statusTarget || !newStatus) return;
+    setChangingStatus(true);
+    setStatusError(null);
+    try {
+      await updateDynamicAppointmentStatus(statusTarget.id, newStatus);
+      setStatusTarget(null);
+      load();
+      setSnackbar({ open: true, message: `Appointment marked as ${newStatus}.`, severity: 'success' });
+    } catch (err: unknown) {
+      setStatusError(err instanceof Error ? err.message : 'Failed to update status.');
+    } finally {
+      setChangingStatus(false);
+    }
+  }
 
   // ── Notes / Prescription helpers (doctor / admin) ──────────────────────────
   function openNotesDialog(appt: UnifiedAppointment): void {
@@ -424,6 +455,8 @@ export default function Page(): React.JSX.Element {
             <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value="all">All</MenuItem>
               <MenuItem value="booked">Booked</MenuItem>
+              <MenuItem value="completed">Completed</MenuItem>
+              <MenuItem value="no_show">No Show</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
             </Select>
           </FormControl>
@@ -527,6 +560,13 @@ export default function Page(): React.JSX.Element {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          {(isAdmin || isDoctor) && appt.status === 'booked' ? (
+                            <Tooltip title="Mark as completed / no-show">
+                              <IconButton color="success" size="small" onClick={() => { openStatusDialog(appt); }}>
+                                <CheckCircleIcon fontSize="var(--icon-fontSize-md)" />
+                              </IconButton>
+                            </Tooltip>
+                          ) : null}
                           {canCancel(appt) ? (
                             <Tooltip title="Cancel appointment">
                               <IconButton color="error" size="small" onClick={() => { openCancelDialog(appt); }}>
@@ -553,7 +593,35 @@ export default function Page(): React.JSX.Element {
           rowsPerPageOptions={[10]}
         />
       </Card>
-
+      {/* ── Status Change Dialog (admin / doctor) ─────────────────────────────── */}
+      <Dialog
+        open={Boolean(statusTarget)}
+        onClose={() => { if (!changingStatus) setStatusTarget(null); }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Update Appointment Status #{statusTarget?.id}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {statusError ? <Typography color="error" variant="body2">{statusError}</Typography> : null}
+            <Typography variant="body2">Select the new status for this appointment:</Typography>
+            <FormControl fullWidth size="small">
+              <InputLabel>Status</InputLabel>
+              <Select value={newStatus} label="Status" onChange={(e) => { setNewStatus(e.target.value); }}>
+                <MenuItem value="completed">Completed</MenuItem>
+                <MenuItem value="no_show">No Show</MenuItem>
+                <MenuItem value="booked">Booked</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setStatusTarget(null); }} disabled={changingStatus}>Cancel</Button>
+          <Button onClick={() => { void handleStatusChange(); }} color="success" variant="contained" disabled={changingStatus || !newStatus}>
+            {changingStatus ? 'Updating…' : 'Update Status'}
+          </Button>
+        </DialogActions>
+      </Dialog>
       {/* ── Cancel Appointment Dialog ────────────────────────────────────── */}
       <Dialog
         open={Boolean(cancelTarget)}
